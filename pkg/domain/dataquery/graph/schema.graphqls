@@ -1,0 +1,89 @@
+scalar Time
+
+input LabelFilter {
+  expression: String!
+}
+
+input TimeRangeInput {
+  start: Time!
+  end: Time!
+}
+
+input AggregationInput {
+  interval: String!
+  function: AggFunction!
+}
+
+enum AggFunction {
+  AVG
+  MIN
+  MAX
+  SUM
+  COUNT
+}
+
+type SeriesMeta {
+  id: ID!
+  endpoint: String!
+  metric: String!
+  labels: Labels!
+  labelsHash: String!
+  createdAt: Time!
+}
+
+type Labels {
+  keys: [String!]!
+  value(key: String!): String
+  entries: [LabelEntry!]!
+}
+
+type LabelEntry {
+  key: String!
+  value: String!
+}
+
+type AggregatedPoint {
+  time: Time!
+  value: Float!
+  count: Int!
+}
+
+type Series {
+  meta: SeriesMeta!
+  points: [DataPoint!]!
+  aggregatedPoints: [AggregatedPoint!]!
+  statistics: SeriesStatistics
+}
+
+type DataPoint {
+  time: Time!
+  value: Float!
+}
+
+type SeriesStatistics {
+  min: Float!
+  max: Float!
+  avg: Float!
+  sum: Float!
+  count: Int!
+}
+
+type Query {
+  endpoints: [String!]!
+  metrics(endpoint: String!): [String!]!
+  series(
+    endpoint: String
+    metric: String
+    labels: LabelFilter
+    timeRange: TimeRangeInput!
+    limit: Int
+  ): [Series!]!
+  seriesById(id: ID!, timeRange: TimeRangeInput!): Series
+  seriesMulti(
+    endpoints: [String!]
+    metrics: [String!]
+    labels: LabelFilter
+    timeRange: TimeRangeInput!
+    aggregation: AggregationInput
+  ): [Series!]!
+}

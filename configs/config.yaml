@@ -1,0 +1,72 @@
+# Database Intelligent Cockpit Configuration
+
+server:
+  gateway:
+    host: "0.0.0.0"
+    port: 8080
+    mode: "debug"  # debug, release, test
+
+  collector:
+    host: "0.0.0.0"
+    port: 8081
+
+  agent:
+    host: "0.0.0.0"
+    port: 8082
+
+  taskengine:
+    host: "0.0.0.0"
+    port: 8083
+
+  dataquery:
+    host: "0.0.0.0"
+    port: 8084
+
+database:
+  timescaledb:
+    host: "localhost"
+    port: 5432
+    user: "postgres"
+    password: "postgres"
+    database: "postgres"
+    sslmode: "disable"
+    max_conns: 50
+    min_conns: 5
+
+  neo4j:
+    uri: "bolt://localhost:7687"
+    username: "neo4j"
+    password: "neo4j"
+    database: "neo4j"
+
+  pgvector:
+    host: "localhost"
+    port: 5432
+    user: "postgres"
+    password: "postgres"
+    database: "cockpit_vectors"
+    sslmode: "disable"
+
+cache:
+  redis:
+    addr: "localhost:6379"
+    password: ""
+    db: 0
+    pool_size: 100
+
+message_queue:
+  pgmq:
+    host: "localhost"
+    port: 5432
+    user: "postgres"
+    password: "postgres"
+    database: "cockpit_mq"
+
+auth:
+  jwt_secret: "your-secret-key"
+  token_expire: 3600  # seconds
+
+logging:
+  level: "info"
+  format: "json"
+  output: "stdout"

@@ -1,0 +1,29 @@
+package dataquery
+
+import (
+	"context"
+)
+
+// Repository defines the data access interface for time series data
+type Repository interface {
+	// GetEndpoints retrieves all distinct endpoints
+	GetEndpoints(ctx context.Context) ([]string, error)
+
+	// GetMetrics retrieves all distinct metrics for an endpoint
+	GetMetrics(ctx context.Context, endpoint string) ([]string, error)
+
+	// QuerySeries queries series metadata based on filters
+	QuerySeries(ctx context.Context, req *SeriesQueryRequest) ([]SeriesMeta, error)
+
+	// GetSeriesByID retrieves series metadata by ID
+	GetSeriesByID(ctx context.Context, id int64) (*SeriesMeta, error)
+
+	// GetSeriesPoints retrieves data points for multiple series
+	GetSeriesPoints(ctx context.Context, req *PointsQueryRequest) (map[int64][]DataPoint, error)
+
+	// GetAggregatedPoints retrieves aggregated data points for multiple series
+	GetAggregatedPoints(ctx context.Context, req *AggregationRequest) (map[int64][]AggregatedPoint, error)
+
+	// GetSeriesStatistics retrieves statistics for multiple series
+	GetSeriesStatistics(ctx context.Context, req *StatsRequest) (map[int64]*SeriesStatistics, error)
+}

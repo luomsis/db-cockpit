@@ -1,0 +1,250 @@
+syntax = "proto3";
+
+package agent.v1;
+
+option go_package = "github.com/db-cockpit/api/proto/agent;agent";
+
+// ExecutionAgentService - Executes SQL and API calls
+// Called by Domain Layer, records audit logs
+service ExecutionAgentService {
+  // Execute SQL query
+  rpc ExecuteSQL(ExecuteSQLRequest) returns (ExecuteSQLResponse);
+
+  // Execute SQL with transaction
+  rpc ExecuteTransaction(ExecuteTransactionRequest) returns (ExecuteTransactionResponse);
+
+  // Execute API call
+  rpc ExecuteAPICall(ExecuteAPICallRequest) returns (ExecuteAPICallResponse);
+
+  // Get execution status
+  rpc GetExecutionStatus(GetExecutionStatusRequest) returns (GetExecutionStatusResponse);
+
+  // Cancel execution
+  rpc CancelExecution(CancelExecutionRequest) returns (CancelExecutionResponse);
+
+  // Get execution audit log
+  rpc GetAuditLog(GetAuditLogRequest) returns (GetAuditLogResponse);
+
+  // Health check
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+// SQL Execution
+message ExecuteSQLRequest {
+  string execution_id = 1;
+  string tenant_id = 2;
+  string user_id = 3;
+  string database_id = 4;
+  string database_type = 5;  // "postgres", "mysql", "clickhouse"
+  string sql = 6;
+  repeated SQLParameter parameters = 7;
+  ExecutionOptions options = 8;
+  AuditInfo audit_info = 9;
+}
+
+message SQLParameter {
+  string name = 1;
+  string type = 2;
+  string value = 3;
+}
+
+message ExecutionOptions {
+  int32 timeout_seconds = 1;
+  int32 max_rows = 2;
+  bool read_only = 3;
+  bool explain_only = 4;
+  string isolation_level = 5;
+}
+
+message AuditInfo {
+  string source = 1;  // "ui", "api", "scheduled", "llm"
+  string reason = 2;
+  map<string, string> context = 3;
+}
+
+message ExecuteSQLResponse {
+  string execution_id = 1;
+  ExecutionStatus status = 2;
+  repeated ResultColumn columns = 3;
+  repeated ResultRow rows = 4;
+  int64 rows_affected = 5;
+  int64 rows_returned = 6;
+  int64 execution_time_ms = 7;
+  string error_message = 8;
+  string audit_id = 9;
+  ExecutionPlan plan = 10;
+}
+
+enum ExecutionStatus {
+  EXECUTION_STATUS_UNSPECIFIED = 0;
+  EXECUTION_STATUS_PENDING = 1;
+  EXECUTION_STATUS_RUNNING = 2;
+  EXECUTION_STATUS_COMPLETED = 3;
+  EXECUTION_STATUS_FAILED = 4;
+  EXECUTION_STATUS_CANCELLED = 5;
+  EXECUTION_STATUS_TIMEOUT = 6;
+}
+
+message ResultColumn {
+  string name = 1;
+  string type = 2;
+  bool nullable = 3;
+}
+
+message ResultRow {
+  repeated string values = 1;
+}
+
+message ExecutionPlan {
+  string plan_text = 1;
+  double estimated_cost = 2;
+  double estimated_rows = 3;
+  repeated string warnings = 4;
+}
+
+// Transaction execution
+message ExecuteTransactionRequest {
+  string transaction_id = 1;
+  string tenant_id = 2;
+  string user_id = 3;
+  string database_id = 4;
+  repeated SQLStatement statements = 5;
+  TransactionOptions options = 6;
+  AuditInfo audit_info = 7;
+}
+
+message SQLStatement {
+  string sql = 1;
+  repeated SQLParameter parameters = 2;
+}
+
+message TransactionOptions {
+  int32 timeout_seconds = 1;
+  string isolation_level = 2;
+  bool retry_on_deadlock = 3;
+  int32 max_retries = 4;
+}
+
+message ExecuteTransactionResponse {
+  string transaction_id = 1;
+  ExecutionStatus status = 2;
+  repeated StatementResult results = 3;
+  int64 total_time_ms = 4;
+  string error_message = 5;
+  string audit_id = 6;
+}
+
+message StatementResult {
+  int32 statement_index = 1;
+  bool success = 2;
+  int64 rows_affected = 3;
+  repeated ResultColumn columns = 4;
+  repeated ResultRow rows = 5;
+  int64 execution_time_ms = 6;
+  string error = 7;
+}
+
+// API execution
+message ExecuteAPICallRequest {
+  string call_id = 1;
+  string tenant_id = 2;
+  string user_id = 3;
+  APIEndpoint endpoint = 4;
+  HTTPRequest request = 5;
+  AuditInfo audit_info = 6;
+}
+
+message APIEndpoint {
+  string name = 1;
+  string url = 2;
+  string method = 3;  // GET, POST, PUT, DELETE
+  map<string, string> headers = 4;
+  int32 timeout_seconds = 5;
+}
+
+message HTTPRequest {
+  string path = 1;
+  map<string, string> query_params = 2;
+  map<string, string> headers = 3;
+  bytes body = 4;
+}
+
+message ExecuteAPICallResponse {
+  string call_id = 1;
+  ExecutionStatus status = 2;
+  int32 status_code = 3;
+  map<string, string> headers = 4;
+  bytes body = 5;
+  int64 execution_time_ms = 6;
+  string error_message = 7;
+  string audit_id = 8;
+}
+
+// Execution status
+message GetExecutionStatusRequest {
+  string execution_id = 1;
+}
+
+message GetExecutionStatusResponse {
+  string execution_id = 1;
+  ExecutionStatus status = 2;
+  int32 progress_percent = 3;
+  string current_operation = 4;
+  int64 started_at = 5;
+  int64 elapsed_ms = 6;
+  string error_message = 7;
+}
+
+// Cancel execution
+message CancelExecutionRequest {
+  string execution_id = 1;
+  string reason = 2;
+}
+
+message CancelExecutionResponse {
+  bool success = 1;
+  string execution_id = 2;
+  ExecutionStatus status = 3;
+  string message = 4;
+}
+
+// Audit log
+message GetAuditLogRequest {
+  string tenant_id = 1;
+  string execution_id = 2;
+  string user_id = 3;
+  int64 start_time = 4;
+  int64 end_time = 5;
+  int32 limit = 6;
+  int32 offset = 7;
+}
+
+message GetAuditLogResponse {
+  repeated AuditEntry entries = 1;
+  int32 total = 2;
+}
+
+message AuditEntry {
+  string audit_id = 1;
+  string execution_id = 2;
+  string tenant_id = 3;
+  string user_id = 4;
+  string database_id = 5;
+  string operation_type = 6;
+  string operation_detail = 7;
+  ExecutionStatus status = 8;
+  int64 rows_affected = 9;
+  int64 execution_time_ms = 10;
+  int64 timestamp = 11;
+  string source = 12;
+  map<string, string> context = 13;
+}
+
+// Health
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1;
+  int64 timestamp = 2;
+  map<string, string> connections = 3;
+}
