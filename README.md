@@ -125,8 +125,16 @@ db-cockpit/
 │   ├── data/              # Data Layer access
 │   └── common/            # Common utilities
 ├── configs/               # Configuration files
-├── scripts/               # Build scripts
-└── test/                  # Tests
+├── scripts/               # Build and test scripts
+│   ├── build.sh          # Build all services
+│   ├── generate_proto.sh # Generate protobuf code
+│   ├── run_integration_tests.sh # Run integration tests
+│   └── test_gateway_curl.sh     # Manual curl-based testing
+├── test/                  # Tests
+│   └── integration/       # Integration tests
+│       ├── query_test.go  # Data query tests
+│       └── gateway_test.go # Gateway E2E tests
+└── docs/                  # Documentation
 ```
 
 ## Technology Stack
@@ -416,6 +424,58 @@ func (h *MyTaskHandler) TaskType() task.TaskType {
 // Register in main
 taskEngine.RegisterHandler(&MyTaskHandler{})
 ```
+
+## Testing
+
+### Unit Tests
+
+```bash
+# Run all unit tests
+go test ./...
+
+# Run tests with verbose output
+go test -v ./pkg/...
+
+# Run tests for specific package
+go test ./pkg/api/handler/...
+go test ./pkg/domain/dataquery/...
+
+# Run tests with coverage
+go test -cover ./...
+```
+
+### Integration Tests
+
+Integration tests verify the complete flow: `frontend → gateway → dataquery → database`.
+
+```bash
+# Prerequisites: Start services first
+go run cmd/dataquery/main.go &
+go run cmd/gateway/main.go &
+
+# Run integration tests
+go test -v ./test/integration/...
+
+# Or use the automated script
+./scripts/run_integration_tests.sh
+```
+
+### Manual Testing with curl
+
+```bash
+# Run the curl-based manual test script
+./scripts/test_gateway_curl.sh
+```
+
+### Test Coverage
+
+| Package | Coverage |
+|---------|----------|
+| pkg/api/handler | Handler layer tests with mocked domain services |
+| pkg/api/middleware | Auth, CORS, RequestID, Audit middleware tests |
+| pkg/api/router | Route registration and middleware chain tests |
+| pkg/domain/dataquery | Service, repository, label parser tests |
+| test/integration | End-to-end integration tests with curl |
 
 ## Configuration
 

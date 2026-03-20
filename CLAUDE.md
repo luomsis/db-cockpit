@@ -13,11 +13,15 @@ go run cmd/gateway/main.go       # API Gateway (default port 8080)
 go run cmd/collector/main.go     # Collector (default port 8081)
 go run cmd/agent/main.go         # Execution Agent (default port 8082)
 go run cmd/taskengine/main.go    # Task Engine (default port 8083)
+go run cmd/dataquery/main.go     # Data Query Service (default port 8084)
 
 # Run tests
 go test ./...                    # All tests
-go test ./pkg/domain/...         # Domain layer tests only
+go test ./pkg/...                # Unit tests only
 go test -v ./test/integration/... # Integration tests with verbose output
+
+# Run with coverage
+go test -cover ./...
 
 # Generate protobuf code (requires protoc)
 ./scripts/generate_proto.sh
@@ -121,3 +125,43 @@ All domain operations receive `*domain.DomainContext` containing:
 - Underlying `context.Context` via `Ctx` field
 
 Middleware extracts tenant info from JWT and injects into request context.
+
+## Testing
+
+### Test Structure
+
+```
+test/
+└── integration/
+    ├── query_test.go     # Data Query Service tests
+    └── gateway_test.go   # Gateway E2E tests (curl-based)
+
+pkg/api/handler/handler_test.go    # Handler layer tests
+pkg/api/middleware/middleware_test.go # Middleware tests
+pkg/api/router/router_test.go      # Router tests
+pkg/domain/dataquery/*_test.go     # Domain service tests
+```
+
+### Running Tests
+
+```bash
+# Unit tests
+go test ./pkg/api/... -v
+go test ./pkg/domain/dataquery/... -v
+
+# Integration tests (requires running services)
+go test ./test/integration/... -v
+
+# Or use the automated script
+./scripts/run_integration_tests.sh
+```
+
+### Mock Services
+
+Tests use mock implementations of domain services:
+- `mockSQLGovernanceService`
+- `mockPerformanceService`
+- `mockThresholdService`
+- `mockLLMService`
+
+These mocks implement the corresponding service interfaces and allow testing the gateway layer in isolation.

@@ -5,8 +5,14 @@
 *.so
 *.dylib
 bin/
-gateway
-insert_test_data
+
+# Compiled service binaries
+/gateway
+/collector
+/agent
+/taskengine
+/dataquery
+/insert_test_data
 
 # Test binary
 *.test
