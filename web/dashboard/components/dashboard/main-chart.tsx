@@ -54,7 +54,7 @@ export function MainChart({ series, isLoading }: MainChartProps) {
   }
 
   // 合并所有series的数据点，按时间对齐
-  const timeMap = new Map<string, Record<string, number>>()
+  const timeMap = new Map<string, Record<string, string | number>>()
 
   series.forEach((s, index) => {
     const label = s.meta.labels.entries
