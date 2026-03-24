@@ -60,23 +60,14 @@ func main() {
 
 	pool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
-		logger.Warn("Failed to connect to PostgreSQL, using mock data", zap.Error(err))
-		pool = nil
-	} else {
-		logger.Info("PostgreSQL connection pool initialized")
+		logger.Fatal("Failed to connect to PostgreSQL", zap.Error(err))
 	}
+	logger.Info("PostgreSQL connection pool initialized")
 
 	// Initialize Data Query Service
-	var dataQueryService dataquery.DataQueryService
-	if pool != nil {
-		repo := dataquery.NewPGRepository(pool)
-		dataQueryService = dataquery.NewService(repo)
-		logger.Info("Data Query Service initialized with PostgreSQL")
-	} else {
-		// Use mock service for development
-		dataQueryService = dataquery.NewMockService()
-		logger.Info("Data Query Service initialized with mock data")
-	}
+	repo := dataquery.NewPGRepository(pool)
+	dataQueryService := dataquery.NewService(repo)
+	logger.Info("Data Query Service initialized with PostgreSQL")
 
 	// Create GraphQL handler
 	resolver := graph.NewResolver(dataQueryService)
