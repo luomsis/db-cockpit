@@ -43,6 +43,9 @@ Thumbs.db
 *.log
 logs/
 
+# PID files
+.pids/
+
 # Temp files
 tmp/
 temp/

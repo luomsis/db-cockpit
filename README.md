@@ -126,14 +126,23 @@ db-cockpit/
 │   └── common/            # Common utilities
 ├── configs/               # Configuration files
 ├── scripts/               # Build and test scripts
+│   ├── services.sh       # Service management (start/stop/status)
+│   ├── db-data.sh        # Database data management (seed/clear/reset)
 │   ├── build.sh          # Build all services
 │   ├── generate_proto.sh # Generate protobuf code
+│   ├── insert_test_data.go # Test data insertion script
 │   ├── run_integration_tests.sh # Run integration tests
 │   └── test_gateway_curl.sh     # Manual curl-based testing
 ├── test/                  # Tests
 │   └── integration/       # Integration tests
 │       ├── query_test.go  # Data query tests
 │       └── gateway_test.go # Gateway E2E tests
+├── web/                   # Frontend
+│   └── dashboard/         # Next.js Dashboard
+│       ├── app/           # Pages and layouts
+│       ├── components/    # React components
+│       ├── lib/           # Utilities and API clients
+│       └── types/         # TypeScript types
 └── docs/                  # Documentation
 ```
 
@@ -181,7 +190,82 @@ CREATE TABLE series_points (
 
 - Go 1.22+
 - Docker & Docker Compose
+- Node.js 18+ (for frontend)
 - Protobuf compiler (protoc)
+
+### Using Service Management Scripts
+
+The project includes convenient scripts for managing all services:
+
+#### Start/Stop All Services
+
+```bash
+# Start all services (Data Query, Gateway, Frontend)
+# Note: Ensure PostgreSQL/TimescaleDB is running first
+./scripts/services.sh start
+
+# Stop all services
+./scripts/services.sh stop
+
+# Restart all services
+./scripts/services.sh restart
+
+# Check service status
+./scripts/services.sh status
+
+# View logs for a specific service
+./scripts/services.sh logs gateway
+./scripts/services.sh logs dataquery
+./scripts/services.sh logs frontend
+```
+
+#### Manage Individual Services
+
+```bash
+# Data Query Service
+./scripts/services.sh start-dataquery
+./scripts/services.sh stop-dataquery
+
+# Gateway Service
+./scripts/services.sh start-gateway
+./scripts/services.sh stop-gateway
+
+# Frontend (Next.js)
+./scripts/services.sh start-frontend
+./scripts/services.sh stop-frontend
+```
+
+> **Note**: PostgreSQL/TimescaleDB should be running before starting services. Use `docker-compose up -d` or your preferred method to start the database.
+
+#### Manage Test Data
+
+```bash
+# Check database data status
+./scripts/db-data.sh status
+
+# Insert test data
+./scripts/db-data.sh seed
+
+# Clear all data
+./scripts/db-data.sh clear
+
+# Reset data (clear + seed)
+./scripts/db-data.sh reset
+
+# Quick test GraphQL endpoints
+./scripts/db-data.sh test
+```
+
+### Service Endpoints
+
+After starting all services, the following endpoints are available:
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| Frontend | http://localhost:3000 | Dashboard UI |
+| Gateway GraphQL | http://localhost:8080/graphql | GraphQL API |
+| Gateway Playground | http://localhost:8080/graphql/playground | GraphQL IDE |
+| Data Query GraphQL | http://localhost:8084/graphql | Direct GraphQL access |
 
 ### Run with Docker
 
