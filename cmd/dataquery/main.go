@@ -10,12 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/99designs/gqlgen/graphql/handler"
-	"github.com/99designs/gqlgen/graphql/playground"
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/db-cockpit/pkg/common/config"
 	"github.com/db-cockpit/pkg/common/logger"
 	"github.com/db-cockpit/pkg/domain/dataquery"
-	"github.com/db-cockpit/pkg/domain/dataquery/graph"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 )
@@ -69,28 +68,46 @@ func main() {
 	dataQueryService := dataquery.NewService(repo)
 	logger.Info("Data Query Service initialized with PostgreSQL")
 
-	// Create GraphQL handler
-	resolver := graph.NewResolver(dataQueryService)
-	graphqlHandler := handler.NewDefaultServer(graph.NewExecutableSchema(graph.Config{Resolvers: resolver}))
-	playgroundHandler := playground.Handler("GraphQL Playground", "/graphql")
+	// Create REST handler
+	handler := dataquery.NewHandler(dataQueryService)
 
-	// Setup HTTP routes
-	mux := http.NewServeMux()
-	mux.Handle("/graphql", graphqlHandler)
-	mux.Handle("/graphql/playground", playgroundHandler)
-
-	// Create HTTP server
+	// Create Hertz server
 	addr := fmt.Sprintf("%s:%d", cfg.Server.DataQuery.Host, cfg.Server.DataQuery.Port)
-	srv := &http.Server{
-		Addr:    addr,
-		Handler: mux,
+	h := server.Default(
+		server.WithHostPorts(addr),
+		server.WithDisablePrintRoute(false),
+	)
+
+	// Register REST routes
+	api := h.Group("/api/v1")
+	{
+		api.GET("/endpoints", func(c context.Context, ctx *app.RequestContext) {
+			handler.GetEndpoints(c, ctx)
+		})
+		api.GET("/metrics", func(c context.Context, ctx *app.RequestContext) {
+			handler.GetMetrics(c, ctx)
+		})
+		api.GET("/series", func(c context.Context, ctx *app.RequestContext) {
+			handler.GetSeries(c, ctx)
+		})
+		api.GET("/series/:id", func(c context.Context, ctx *app.RequestContext) {
+			handler.GetSeriesByID(c, ctx)
+		})
+		api.POST("/series/query", func(c context.Context, ctx *app.RequestContext) {
+			handler.QuerySeries(c, ctx)
+		})
 	}
+
+	// Health check endpoint
+	h.GET("/health", func(c context.Context, ctx *app.RequestContext) {
+		ctx.JSON(http.StatusOK, map[string]string{"status": "ok"})
+	})
 
 	// Start server in goroutine
 	go func() {
 		logger.Info("Data Query Service started", zap.String("addr", addr))
 		printEndpoints(addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := h.Run(); err != nil && err != http.ErrServerClosed {
 			logger.Fatal("Failed to start server", zap.Error(err))
 		}
 	}()
@@ -111,51 +128,45 @@ func main() {
 		pool.Close()
 	}
 
-	srv.Shutdown(shutdownCtx)
+	h.Shutdown(shutdownCtx)
 
 	logger.Info("Data Query Service stopped")
 }
 
 func printEndpoints(addr string) {
 	fmt.Println("\n========================================")
-	fmt.Println("Data Query Service (GraphQL)")
+	fmt.Println("Data Query Service (REST API)")
 	fmt.Println("========================================")
-	fmt.Println("\n📡 GraphQL Endpoint:")
-	fmt.Printf("  POST http://%s/graphql\n", addr)
-	fmt.Printf("  GET  http://%s/graphql/playground\n", addr)
-	fmt.Println("\n📝 Example GraphQL Queries:")
+	fmt.Println("\n📡 REST API Endpoints:")
+	fmt.Printf("  GET  http://%s/api/v1/endpoints\n", addr)
+	fmt.Printf("  GET  http://%s/api/v1/metrics?endpoint=<endpoint>\n", addr)
+	fmt.Printf("  GET  http://%s/api/v1/series?endpoint=<ep>&metric=<m>&start=<t>&end=<t>\n", addr)
+	fmt.Printf("  GET  http://%s/api/v1/series/:id\n", addr)
+	fmt.Printf("  POST http://%s/api/v1/series/query\n", addr)
+	fmt.Printf("  GET  http://%s/health\n", addr)
+	fmt.Println("\n📝 Example REST API Requests:")
 	fmt.Print(`
-  # Query all endpoints
-  query {
-    endpoints
-  }
+  # Get all endpoints
+  curl http://localhost:8084/api/v1/endpoints
 
-  # Query metrics for an endpoint
-  query {
-    metrics(endpoint: "/api/metrics")
-  }
+  # Get metrics for an endpoint
+  curl "http://localhost:8084/api/v1/metrics?endpoint=/api/metrics"
 
   # Query series with filters
-  query($tr: TimeRangeInput!) {
-    series(
-      endpoint: "/api/metrics"
-      metric: "cpu_usage"
-      timeRange: $tr
-      limit: 10
-    ) {
-      meta {
-        id
-        metric
-        labels {
-          entries { key value }
-        }
-      }
-      points {
-        time
-        value
-      }
-    }
-  }
+  curl "http://localhost:8084/api/v1/series?endpoint=/api/metrics&metric=cpu_usage&start=2024-01-01T00:00:00Z&end=2024-01-02T00:00:00Z&limit=10"
+
+  # Get series by ID
+  curl http://localhost:8084/api/v1/series/123
+
+  # Complex query with POST
+  curl -X POST http://localhost:8084/api/v1/series/query \
+    -H "Content-Type: application/json" \
+    -d '{
+      "endpoints": ["/api/metrics"],
+      "metrics": ["cpu_usage"],
+      "start": "2024-01-01T00:00:00Z",
+      "end": "2024-01-02T00:00:00Z"
+    }'
 `)
 	fmt.Println("\n========================================")
 }
