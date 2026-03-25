@@ -122,42 +122,28 @@ func main() {
 	}
 
 	fmt.Printf("\nDone! Inserted %d series with %d total data points.\n", totalSeries, totalPoints)
-	fmt.Println("\nSample queries to try:")
+	fmt.Println("\nSample REST API queries to try:")
 	fmt.Print(`
 # Query all endpoints
-curl -s -X POST http://localhost:8080/graphql \
-  -H "Content-Type: application/json" \
-  -d '{"query": "{ endpoints }"}' | jq
+curl -s http://localhost:8084/api/v1/endpoints | jq
 
 # Query metrics for an endpoint
-curl -s -X POST http://localhost:8080/graphql \
-  -H "Content-Type: application/json" \
-  -d '{"query": "{ metrics(endpoint: \"/api/metrics\") }"}' | jq
+curl -s "http://localhost:8084/api/v1/metrics?endpoint=/api/metrics" | jq
 
 # Query series with time range
-curl -s -X POST http://localhost:8080/graphql \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "query($tr: TimeRangeInput!) { series(endpoint: \"/api/metrics\", metric: \"cpu_usage\", timeRange: $tr) { meta { id endpoint metric labels { entries { key value } } } points { time value } } }",
-    "variables": {
-      "tr": {
-        "start": "' + startTime.Format(time.RFC3339) + '",
-        "end": "' + now.Format(time.RFC3339) + '"
-      }
-    }
-  }' | jq
+curl -s "http://localhost:8084/api/v1/series?endpoint=/api/metrics&metric=cpu_usage&start=` + startTime.Format(time.RFC3339) + `&end=` + now.Format(time.RFC3339) + `" | jq '.data[0] | {id, endpoint, metric, points_count: (.points | length)}'
 
-# Query series with label filter
-curl -s -X POST http://localhost:8080/graphql \
+# Query series by ID
+curl -s "http://localhost:8084/api/v1/series/55" | jq '.data | {id, endpoint, metric, points_count: (.points | length)}'
+
+# Complex query with POST
+curl -s -X POST http://localhost:8084/api/v1/series/query \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "query($tr: TimeRangeInput!) { series(labels: {expression: \"host=\\\"server1\\\"\"}, timeRange: $tr) { meta { id endpoint metric labels { entries { key value } } } } }",
-    "variables": {
-      "tr": {
-        "start": "' + startTime.Format(time.RFC3339) + '",
-        "end": "' + now.Format(time.RFC3339) + '"
-      }
-    }
-  }' | jq
+    "endpoints": ["/api/metrics"],
+    "metrics": ["cpu_usage"],
+    "start": "` + startTime.Format(time.RFC3339) + `",
+    "end": "` + now.Format(time.RFC3339) + `"
+  }' | jq '.data[0] | {id, endpoint, metric, points_count: (.points | length)}'
 `)
 }

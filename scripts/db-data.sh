@@ -199,19 +199,15 @@ ensure_tables() {
 
 # Quick test
 quick_test() {
-    log_info "Running quick GraphQL tests..."
+    log_info "Running quick REST API tests..."
 
     echo ""
     echo "Testing endpoints query..."
-    curl -s http://localhost:8080/graphql \
-        -H "Content-Type: application/json" \
-        -d '{"query":"{ endpoints }"}' | python3 -m json.tool 2>/dev/null || echo "Failed to connect to Gateway"
+    curl -s http://localhost:8084/api/v1/endpoints | python3 -m json.tool 2>/dev/null || echo "Failed to connect to DataQuery service"
 
     echo ""
     echo "Testing metrics query..."
-    curl -s http://localhost:8080/graphql \
-        -H "Content-Type: application/json" \
-        -d '{"query":"{ metrics(endpoint: \"/api/metrics\") }"}' | python3 -m json.tool 2>/dev/null || echo "Failed"
+    curl -s "http://localhost:8084/api/v1/metrics?endpoint=/api/metrics" | python3 -m json.tool 2>/dev/null || echo "Failed"
 
     echo ""
 }
@@ -247,7 +243,7 @@ case "$1" in
         echo "  reset          Clear and re-seed data"
         echo "  status         Show database data status"
         echo "  ensure-tables  Create tables if they don't exist"
-        echo "  test           Run quick GraphQL tests"
+        echo "  test           Run quick REST API tests"
         echo ""
         echo "Environment variables:"
         echo "  DB_HOST        Database host (default: localhost)"
