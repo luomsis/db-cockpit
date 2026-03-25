@@ -7,15 +7,13 @@ import { MetricCards } from '@/components/dashboard/metric-cards'
 import { MainChart } from '@/components/dashboard/main-chart'
 import { AlertList } from '@/components/dashboard/alert-list'
 import { StatsPanel } from '@/components/dashboard/stats-panel'
-import { graphqlClient } from '@/lib/graphql-client'
-import { GET_ENDPOINTS, GET_METRICS, GET_SERIES_DATA } from '@/lib/queries'
+import { getEndpoints, getMetrics, getSeries, SeriesData } from '@/lib/api-client'
 import { toTimeRange } from '@/lib/time-utils'
 import { calculateStatistics } from '@/lib/stats-utils'
 import { mockAlerts, getFiringAlertsCount } from '@/lib/mock-alerts'
 import {
   TimeRangeOption,
   RefreshInterval,
-  Series,
   Statistics,
 } from '@/types'
 
@@ -29,7 +27,7 @@ export default function DashboardPage() {
   // 数据状态
   const [endpoints, setEndpoints] = useState<string[]>([])
   const [metrics, setMetrics] = useState<string[]>([])
-  const [series, setSeries] = useState<Series[]>([])
+  const [series, setSeries] = useState<SeriesData[]>([])
   const [statistics, setStatistics] = useState<Statistics | null>(null)
 
   // 加载状态
@@ -42,8 +40,8 @@ export default function DashboardPage() {
   const fetchEndpoints = useCallback(async () => {
     setIsLoadingEndpoints(true)
     try {
-      const data = await graphqlClient.request<{ endpoints: string[] }>(GET_ENDPOINTS)
-      setEndpoints(data.endpoints || [])
+      const data = await getEndpoints()
+      setEndpoints(data || [])
     } catch (err) {
       console.error('Failed to fetch endpoints:', err)
       setEndpoints([])
@@ -60,11 +58,8 @@ export default function DashboardPage() {
     }
     setIsLoadingMetrics(true)
     try {
-      const data = await graphqlClient.request<{ metrics: string[] }>(
-        GET_METRICS,
-        { endpoint }
-      )
-      setMetrics(data.metrics || [])
+      const data = await getMetrics(endpoint)
+      setMetrics(data || [])
     } catch (err) {
       console.error('Failed to fetch metrics:', err)
       setMetrics([])
@@ -79,16 +74,14 @@ export default function DashboardPage() {
     setError(null)
     try {
       const timeRangeInput = toTimeRange(timeRange)
-      const variables: Record<string, unknown> = { timeRange: timeRangeInput }
-      if (selectedEndpoint) variables.endpoint = selectedEndpoint
-      if (selectedMetric) variables.metric = selectedMetric
+      const data = await getSeries({
+        endpoint: selectedEndpoint || undefined,
+        metric: selectedMetric || undefined,
+        start: timeRangeInput.start,
+        end: timeRangeInput.end,
+      })
 
-      const data = await graphqlClient.request<{ series: Series[] }>(
-        GET_SERIES_DATA,
-        variables
-      )
-
-      const seriesData = data.series || []
+      const seriesData = data || []
       setSeries(seriesData)
 
       // 计算统计信息

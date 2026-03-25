@@ -1,18 +1,8 @@
-// GraphQL响应类型
-export interface LabelEntry {
-  key: string
-  value: string
-}
-
-export interface Labels {
-  entries: LabelEntry[]
-}
-
 export interface SeriesMeta {
   id: string
   endpoint: string
   metric: string
-  labels: Labels
+  labels: Record<string, string>
 }
 
 export interface DataPoint {

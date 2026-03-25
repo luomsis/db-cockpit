@@ -57,8 +57,8 @@ export function MainChart({ series, isLoading }: MainChartProps) {
   const timeMap = new Map<string, Record<string, string | number>>()
 
   series.forEach((s, index) => {
-    const label = s.meta.labels.entries
-      .map((e) => `${e.key}=${e.value}`)
+    const label = Object.entries(s.meta.labels)
+      .map(([key, value]) => `${key}=${value}`)
       .join(', ') || `Series ${index + 1}`
 
     s.points.forEach((point) => {
@@ -75,7 +75,9 @@ export function MainChart({ series, isLoading }: MainChartProps) {
   )
 
   const seriesLabels = series.map((s, index) =>
-    s.meta.labels.entries.map((e) => `${e.key}=${e.value}`).join(', ') ||
+    Object.entries(s.meta.labels)
+      .map(([key, value]) => `${key}=${value}`)
+      .join(', ') ||
     `Series ${index + 1}`
   )
 
