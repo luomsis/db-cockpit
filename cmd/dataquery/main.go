@@ -90,6 +90,32 @@ func main() {
 	// Add CORS middleware for cross-origin requests
 	h.Use(middleware.CORSMiddleware([]string{"*"}))
 
+	// Add request logging middleware
+	h.Use(func(ctx context.Context, c *app.RequestContext) {
+		start := time.Now()
+
+		// Log incoming request
+		logger.Info("Request received",
+			zap.String("method", string(c.Method())),
+			zap.String("path", string(c.Path())),
+			zap.String("query", string(c.URI().QueryString())),
+			zap.String("client_ip", c.ClientIP()),
+		)
+
+		// Process request
+		c.Next(ctx)
+
+		// Log response
+		latency := time.Since(start)
+		logger.Info("Request completed",
+			zap.String("method", string(c.Method())),
+			zap.String("path", string(c.Path())),
+			zap.Int("status", c.Response.StatusCode()),
+			zap.Duration("latency", latency),
+			zap.Int("response_size", len(c.Response.Body())),
+		)
+	})
+
 	// Register REST routes
 	api := h.Group("/api/v1")
 	{

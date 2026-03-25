@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/db-cockpit/pkg/common/logger"
+	"go.uber.org/zap"
 )
 
 // Handler provides REST handlers for the DataQuery service
@@ -98,12 +100,16 @@ type SeriesQueryRequestBody struct {
 // @Failure 500 {object} ErrorResponse
 // @Router /endpoints [get]
 func (h *Handler) GetEndpoints(ctx context.Context, c *app.RequestContext) {
+	logger.Debug("GetEndpoints called")
+
 	endpoints, err := h.service.GetEndpoints(ctx)
 	if err != nil {
+		logger.Error("GetEndpoints failed", zap.Error(err))
 		c.JSON(500, ErrorResponse{Error: ErrorDetail{Code: "INTERNAL_ERROR", Message: err.Error()}})
 		return
 	}
 
+	logger.Debug("GetEndpoints success", zap.Int("count", len(endpoints)))
 	c.JSON(200, EndpointsResponse{Data: endpoints})
 }
 
@@ -120,16 +126,21 @@ func (h *Handler) GetEndpoints(ctx context.Context, c *app.RequestContext) {
 func (h *Handler) GetMetrics(ctx context.Context, c *app.RequestContext) {
 	endpoint := c.Query("endpoint")
 	if endpoint == "" {
+		logger.Warn("GetMetrics missing endpoint parameter")
 		c.JSON(400, ErrorResponse{Error: ErrorDetail{Code: "INVALID_PARAMETER", Message: "endpoint query parameter is required"}})
 		return
 	}
 
+	logger.Debug("GetMetrics called", zap.String("endpoint", endpoint))
+
 	metrics, err := h.service.GetMetrics(ctx, endpoint)
 	if err != nil {
+		logger.Error("GetMetrics failed", zap.String("endpoint", endpoint), zap.Error(err))
 		c.JSON(500, ErrorResponse{Error: ErrorDetail{Code: "INTERNAL_ERROR", Message: err.Error()}})
 		return
 	}
 
+	logger.Debug("GetMetrics success", zap.String("endpoint", endpoint), zap.Int("count", len(metrics)))
 	c.JSON(200, MetricsResponse{Data: metrics})
 }
 
@@ -151,16 +162,26 @@ func (h *Handler) GetMetrics(ctx context.Context, c *app.RequestContext) {
 func (h *Handler) GetSeries(ctx context.Context, c *app.RequestContext) {
 	query, err := h.parseSeriesQuery(c)
 	if err != nil {
+		logger.Warn("GetSeries invalid query", zap.Error(err))
 		c.JSON(400, ErrorResponse{Error: ErrorDetail{Code: "INVALID_PARAMETER", Message: err.Error()}})
 		return
 	}
 
+	logger.Debug("GetSeries called",
+		zap.String("endpoint", query.Endpoint),
+		zap.String("metric", query.Metric),
+		zap.Time("start", query.TimeRange.Start),
+		zap.Time("end", query.TimeRange.End),
+	)
+
 	series, err := h.service.QuerySeries(ctx, query)
 	if err != nil {
+		logger.Error("GetSeries failed", zap.Error(err))
 		c.JSON(500, ErrorResponse{Error: ErrorDetail{Code: "INTERNAL_ERROR", Message: err.Error()}})
 		return
 	}
 
+	logger.Debug("GetSeries success", zap.Int("count", len(series)))
 	c.JSON(200, SeriesResponse{Data: toSeriesDataDTOs(series)})
 }
 
@@ -180,29 +201,36 @@ func (h *Handler) GetSeries(ctx context.Context, c *app.RequestContext) {
 func (h *Handler) GetSeriesByID(ctx context.Context, c *app.RequestContext) {
 	idStr := c.Param("id")
 	if idStr == "" {
+		logger.Warn("GetSeriesByID missing id parameter")
 		c.JSON(400, ErrorResponse{Error: ErrorDetail{Code: "INVALID_PARAMETER", Message: "id parameter is required"}})
 		return
 	}
 
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
+		logger.Warn("GetSeriesByID invalid id", zap.String("id", idStr), zap.Error(err))
 		c.JSON(400, ErrorResponse{Error: ErrorDetail{Code: "INVALID_PARAMETER", Message: "invalid id parameter"}})
 		return
 	}
 
 	timeRange := h.parseOptionalTimeRange(c)
 
+	logger.Debug("GetSeriesByID called", zap.Int64("id", id), zap.Time("start", timeRange.Start), zap.Time("end", timeRange.End))
+
 	series, err := h.service.GetSeriesByID(ctx, id, &timeRange)
 	if err != nil {
+		logger.Error("GetSeriesByID failed", zap.Int64("id", id), zap.Error(err))
 		c.JSON(500, ErrorResponse{Error: ErrorDetail{Code: "INTERNAL_ERROR", Message: err.Error()}})
 		return
 	}
 
 	if series == nil {
+		logger.Debug("GetSeriesByID not found", zap.Int64("id", id))
 		c.JSON(404, ErrorResponse{Error: ErrorDetail{Code: "NOT_FOUND", Message: "series not found"}})
 		return
 	}
 
+	logger.Debug("GetSeriesByID success", zap.Int64("id", id), zap.Int("points", len(series.Points)))
 	dto := toSeriesDataDTO(series)
 	c.JSON(200, SeriesSingleResponse{Data: &dto})
 }
@@ -221,15 +249,24 @@ func (h *Handler) GetSeriesByID(ctx context.Context, c *app.RequestContext) {
 func (h *Handler) QuerySeries(ctx context.Context, c *app.RequestContext) {
 	var req SeriesQueryRequestBody
 	if err := c.BindJSON(&req); err != nil {
+		logger.Warn("QuerySeries invalid JSON body", zap.Error(err))
 		c.JSON(400, ErrorResponse{Error: ErrorDetail{Code: "INVALID_PARAMETER", Message: err.Error()}})
 		return
 	}
 
 	// Validate time range
 	if req.Start == nil || req.End == nil {
+		logger.Warn("QuerySeries missing time range")
 		c.JSON(400, ErrorResponse{Error: ErrorDetail{Code: "INVALID_PARAMETER", Message: "start and end time are required"}})
 		return
 	}
+
+	logger.Debug("QuerySeries called",
+		zap.Int("endpoints", len(req.Endpoints)),
+		zap.Int("metrics", len(req.Metrics)),
+		zap.Time("start", *req.Start),
+		zap.Time("end", *req.End),
+	)
 
 	query := &MultiSeriesQuery{
 		Endpoints:   req.Endpoints,
@@ -243,10 +280,12 @@ func (h *Handler) QuerySeries(ctx context.Context, c *app.RequestContext) {
 
 	series, err := h.service.QuerySeriesMulti(ctx, query)
 	if err != nil {
+		logger.Error("QuerySeries failed", zap.Error(err))
 		c.JSON(500, ErrorResponse{Error: ErrorDetail{Code: "INTERNAL_ERROR", Message: err.Error()}})
 		return
 	}
 
+	logger.Debug("QuerySeries success", zap.Int("count", len(series)))
 	c.JSON(200, SeriesResponse{Data: toSeriesDataDTOs(series)})
 }
 

@@ -271,11 +271,54 @@ func TestCORSMiddleware_AllowedMethods(t *testing.T) {
 		t.Error("Access-Control-Allow-Methods header should be set")
 	}
 
-	expectedMethods := []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
+	expectedMethods := []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"}
 	for _, method := range expectedMethods {
 		if !contains(allowMethods, method) {
 			t.Errorf("Access-Control-Allow-Methods should include %s", method)
 		}
+	}
+}
+
+func TestCORSMiddleware_Credentials(t *testing.T) {
+	middleware := CORSMiddleware([]string{"*"})
+	ctx := context.Background()
+	reqCtx := &app.RequestContext{}
+	reqCtx.Request.Header.Set("Origin", "http://localhost:3000")
+
+	middleware(ctx, reqCtx)
+
+	allowCredentials := reqCtx.Response.Header.Get("Access-Control-Allow-Credentials")
+	if allowCredentials != "true" {
+		t.Errorf("Access-Control-Allow-Credentials = %s, want true", allowCredentials)
+	}
+}
+
+func TestCORSMiddleware_MaxAge(t *testing.T) {
+	middleware := CORSMiddleware([]string{"*"})
+	ctx := context.Background()
+	reqCtx := &app.RequestContext{}
+	reqCtx.Request.Header.Set("Origin", "http://localhost:3000")
+
+	middleware(ctx, reqCtx)
+
+	maxAge := reqCtx.Response.Header.Get("Access-Control-Max-Age")
+	if maxAge != "86400" {
+		t.Errorf("Access-Control-Max-Age = %s, want 86400", maxAge)
+	}
+}
+
+func TestCORSMiddleware_NoOriginHeader(t *testing.T) {
+	middleware := CORSMiddleware([]string{"*"})
+	ctx := context.Background()
+	reqCtx := &app.RequestContext{}
+	// No Origin header set
+
+	middleware(ctx, reqCtx)
+
+	// When no Origin header, CORS headers should not be set
+	allowOrigin := reqCtx.Response.Header.Get("Access-Control-Allow-Origin")
+	if allowOrigin != "" {
+		t.Errorf("Access-Control-Allow-Origin should be empty for same-origin requests, got %s", allowOrigin)
 	}
 }
 

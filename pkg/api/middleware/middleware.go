@@ -136,7 +136,7 @@ func RequestIDMiddleware() app.HandlerFunc {
 	}
 }
 
-// CORSMiddleware handles CORS
+// CORSMiddleware handles CORS with full support for preflight requests
 func CORSMiddleware(allowedOrigins []string) app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
 		origin := string(c.GetHeader("Origin"))
@@ -151,12 +151,21 @@ func CORSMiddleware(allowedOrigins []string) app.HandlerFunc {
 		}
 
 		if allowed {
+			// When origin is empty (same-origin request), skip CORS headers
+			if origin == "" {
+				c.Next(ctx)
+				return
+			}
+
 			c.Header("Access-Control-Allow-Origin", origin)
-			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Tenant-ID, X-Request-ID")
-			c.Header("Access-Control-Expose-Headers", "X-Request-ID")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD")
+			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Tenant-ID, X-Request-ID, Accept, Origin, X-Requested-With, Cache-Control, If-Match, If-None-Match, If-Modified-Since, If-Unmodified-Since")
+			c.Header("Access-Control-Expose-Headers", "X-Request-ID, ETag, Link, X-Total-Count, X-Page, X-Per-Page")
+			c.Header("Access-Control-Allow-Credentials", "true")
+			c.Header("Access-Control-Max-Age", "86400") // Cache preflight for 24 hours
 		}
 
+		// Handle preflight OPTIONS request
 		if string(c.Method()) == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return

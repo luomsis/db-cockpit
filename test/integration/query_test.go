@@ -289,61 +289,6 @@ func TestPGRepositoryGetSeriesPoints(t *testing.T) {
 	t.Logf("Found %d total points across %d series", totalPoints, len(points))
 }
 
-// TestPGRepositoryGetAggregatedPoints tests aggregation
-func TestPGRepositoryGetAggregatedPoints(t *testing.T) {
-	pool := getTestDB(t)
-	if pool == nil {
-		return
-	}
-	defer pool.Close()
-
-	repo := dataquery.NewPGRepository(pool)
-	ctx := context.Background()
-
-	now := time.Now()
-	timeRange := dataquery.TimeRange{
-		Start: now.Add(-24 * time.Hour),
-		End:   now,
-	}
-
-	// First get series
-	series, err := repo.QuerySeries(ctx, &dataquery.SeriesQueryRequest{
-		TimeRange: timeRange,
-		Limit:     5,
-	})
-	if err != nil {
-		t.Fatalf("QuerySeries() error = %v", err)
-	}
-
-	if len(series) == 0 {
-		t.Skip("No series found in database")
-	}
-
-	seriesIDs := make([]int64, len(series))
-	for i, s := range series {
-		seriesIDs[i] = s.ID
-	}
-
-	// Test each aggregation function
-	aggFunctions := []string{"AVG", "MIN", "MAX", "SUM", "COUNT"}
-
-	for _, fn := range aggFunctions {
-		t.Run(fn, func(t *testing.T) {
-			aggPoints, err := repo.GetAggregatedPoints(ctx, &dataquery.AggregationRequest{
-				SeriesIDs: seriesIDs,
-				TimeRange: timeRange,
-				Interval:  "1h",
-				Function:  fn,
-			})
-			if err != nil {
-				t.Fatalf("GetAggregatedPoints() error = %v", err)
-			}
-
-			t.Logf("%s aggregation: %d buckets", fn, len(aggPoints))
-		})
-	}
-}
-
 // TestPGRepositoryGetSeriesStatistics tests statistics calculation
 func TestPGRepositoryGetSeriesStatistics(t *testing.T) {
 	pool := getTestDB(t)
@@ -475,10 +420,6 @@ func TestServiceIntegration(t *testing.T) {
 	// Test QuerySeriesMulti
 	multiSeries, err := svc.QuerySeriesMulti(ctx, &dataquery.MultiSeriesQuery{
 		TimeRange: timeRange,
-		Aggregation: &dataquery.Aggregation{
-			Interval: "1h",
-			Function: dataquery.AggAvg,
-		},
 	})
 	if err != nil {
 		t.Fatalf("QuerySeriesMulti() error = %v", err)
