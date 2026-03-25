@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 # Build all services
 go build ./cmd/...
+./scripts/build/build.sh           # Or use the build script
 
 # Run individual services
 go run cmd/gateway/main.go       # API Gateway (default port 8080)
@@ -19,12 +20,10 @@ go run cmd/dataquery/main.go     # Data Query Service (default port 8084)
 go test ./...                    # All tests
 go test ./pkg/...                # Unit tests only
 go test -v ./test/integration/... # Integration tests with verbose output
-
-# Run with coverage
-go test -cover ./...
+go test -cover ./...             # With coverage
 
 # Generate protobuf code (requires protoc)
-./scripts/generate_proto.sh
+./scripts/build/generate_proto.sh
 ```
 
 ## Architecture: Communication Protocols
@@ -34,13 +33,13 @@ The system follows a specific communication pattern:
 | Path | Protocol |
 |------|----------|
 | Frontend ↔ Gateway | RESTful API |
-| Frontend ↔ Data Query | **GraphQL only** (`/graphql`) |
+| Frontend ↔ Data Query | **REST API** (`/api/v1/*`) |
 | Domain Layer ↔ Agent | **RPC** (gRPC) |
 | Domain Layer ↔ Task Engine | **RPC** (gRPC) |
 | Domain Layer internal services | Direct function calls (no RPC) |
 | Data Query ↔ TimescaleDB | Direct function calls |
 
-**Key insight**: Data Query Service is special - it only exposes GraphQL, not REST or RPC. Other domain services use REST through the Gateway.
+**Key insight**: Data Query Service exposes a REST API with Swagger documentation. Other domain services use REST through the Gateway.
 
 ## Domain Service Pattern
 
@@ -53,7 +52,9 @@ Every domain service in `pkg/domain/<name>/` follows this structure:
 
 2. **impl.go** - Implements the service
 
-3. Domain services receive dependencies via constructor injection:
+3. **handler.go** - REST handlers (for services that expose HTTP endpoints)
+
+4. Domain services receive dependencies via constructor injection:
    ```go
    // SQL Governance needs Agent client (via RPC)
    sqlGovernanceService := sqlgovernance.NewService(repo, agentClient)
@@ -61,6 +62,23 @@ Every domain service in `pkg/domain/<name>/` follows this structure:
    // Performance needs Threshold client (direct call, same process)
    performanceService := performance.NewService(repo, thresholdClient)
    ```
+
+## Data Query Service (REST API)
+
+Data Query Service provides a REST API for time-series queries:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/endpoints` | GET | Get all distinct endpoints |
+| `/api/v1/metrics?endpoint=<ep>` | GET | Get metrics for an endpoint |
+| `/api/v1/series?...` | GET | Query series with filters |
+| `/api/v1/series/:id` | GET | Get series by ID |
+| `/api/v1/series/query` | POST | Complex query with JSON body |
+| `/swagger/index.html` | GET | Swagger UI documentation |
+
+**Handler**: `pkg/domain/dataquery/handler.go`
+**Service**: `pkg/domain/dataquery/service.go`
+**Repository**: `pkg/domain/dataquery/pg_repository.go`
 
 ## RPC Client Pattern
 
@@ -77,45 +95,27 @@ SQLGovernanceService
               └── AgentClient (wraps gRPC calls)
 ```
 
-## GraphQL Implementation
-
-Data Query Service uses `github.com/graphql-go/graphql`:
-- Schema defined in `pkg/domain/dataquery/graphql.go`
-- Resolver receives `DataQueryService` interface
-- Handler in `pkg/api/handler/graphql.go` handles HTTP requests
-
-Query example:
-```graphql
-query {
-  queryMetrics(name: "cpu_usage", limit: 10) {
-    name
-    points { value timestamp }
-    statistics { min max avg }
-  }
-}
-```
-
 ## Key File Locations
 
 - **Domain interfaces**: `pkg/domain/<name>/service.go`
 - **Domain implementations**: `pkg/domain/<name>/impl.go`
-- **REST handlers**: `pkg/api/handler/handler.go`
-- **GraphQL handler**: `pkg/api/handler/graphql.go`
+- **REST handlers**: `pkg/domain/<name>/handler.go` or `pkg/api/handler/handler.go`
 - **Routes**: `pkg/api/router/router.go`
 - **Middleware**: `pkg/api/middleware/` (auth, RBAC, audit, multi-tenant)
 - **RPC clients**: `pkg/rpc/<agent|task>/client.go`
 - **Proto definitions**: `api/proto/<service>/<service>.proto`
 - **Generated proto Go**: `api/proto/<service>/<service>.pb.go`
 - **Configuration**: `configs/config.yaml`
+- **Swagger docs**: `docs/` (auto-generated)
 
 ## Service Initialization Flow
 
-In `cmd/gateway/main.go`:
-1. Load config → Init logger → Init mock TimescaleDB
-2. Create RPC clients for Agent and Task Engine
-3. Create adapters that implement domain interfaces
+In `cmd/<service>/main.go`:
+1. Load config → Init logger
+2. Initialize database connections (pgxpool for TimescaleDB)
+3. Create repository implementations
 4. Initialize domain services with their dependencies
-5. Create Gateway handler and GraphQL handler
+5. Create REST handlers
 6. Register routes and start Hertz server
 
 ## Multi-tenancy Context
@@ -151,9 +151,6 @@ go test ./pkg/domain/dataquery/... -v
 
 # Integration tests (requires running services)
 go test ./test/integration/... -v
-
-# Or use the automated script
-./scripts/run_integration_tests.sh
 ```
 
 ### Mock Services
@@ -165,3 +162,18 @@ Tests use mock implementations of domain services:
 - `mockLLMService`
 
 These mocks implement the corresponding service interfaces and allow testing the gateway layer in isolation.
+
+## Scripts Organization
+
+```
+scripts/
+├── build/                 # Build and code generation
+│   ├── build.sh          # Build all services
+│   └── generate_proto.sh # Generate protobuf code
+├── db/                    # Database management
+│   ├── db-data.sh        # Manage test data (seed/clear/reset/status)
+│   ├── init-extensions.sql # Initialize TimescaleDB/pgvector/PGMQ
+│   └── insert_test_data.go # Insert test data
+└── dev/                   # Development utilities
+    └── services.sh       # Start/stop/restart services
+```
