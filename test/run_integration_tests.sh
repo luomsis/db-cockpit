@@ -16,6 +16,10 @@ GATEWAY_PORT=${GATEWAY_PORT:-8080}
 DATAQUERY_PORT=${DATAQUERY_PORT:-8084}
 TEST_TIMEOUT=30
 
+# Project root directory
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${PROJECT_ROOT}"
+
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}Gateway Integration Test Runner${NC}"
 echo -e "${GREEN}========================================${NC}"
