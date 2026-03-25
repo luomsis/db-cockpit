@@ -12,6 +12,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/db-cockpit/pkg/api/middleware"
 	"github.com/db-cockpit/pkg/common/config"
 	"github.com/db-cockpit/pkg/common/logger"
 	"github.com/db-cockpit/pkg/domain/dataquery"
@@ -85,6 +86,9 @@ func main() {
 		server.WithHostPorts(addr),
 		server.WithDisablePrintRoute(false),
 	)
+
+	// Add CORS middleware for cross-origin requests
+	h.Use(middleware.CORSMiddleware([]string{"*"}))
 
 	// Register REST routes
 	api := h.Group("/api/v1")
