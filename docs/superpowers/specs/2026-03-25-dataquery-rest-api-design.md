@@ -169,6 +169,7 @@ All endpoints return consistent error format:
 #### Delete
 - `pkg/domain/dataquery/graph/` - entire GraphQL directory
 - `pkg/domain/dataquery/generate.go` - gqlgen generate directive
+- `pkg/domain/dataquery/gqlgen.yml` - gqlgen configuration file
 
 #### Create
 - `pkg/domain/dataquery/handler.go` - REST handlers using Hertz
@@ -179,9 +180,11 @@ All endpoints return consistent error format:
 
 #### Keep Unchanged
 - `pkg/domain/dataquery/service.go` - service interface and implementation
+- `pkg/domain/dataquery/service_test.go` - service tests
 - `pkg/domain/dataquery/repository.go` - repository interface
 - `pkg/domain/dataquery/pg_repository.go` - PostgreSQL implementation
 - `pkg/domain/dataquery/models.go` - domain models
+- `pkg/domain/dataquery/models_test.go` - model tests
 - `pkg/domain/dataquery/labels/` - label parser
 
 ### Frontend (TypeScript)
@@ -247,7 +250,8 @@ Series IDs are int64 in the database but returned as strings in JSON for compati
 
 - Unit tests for handler request/response transformation
 - Integration tests for full API flow
-- Update existing tests that reference GraphQL
+- Update `test/integration/query_test.go` - currently tests GraphQL endpoint, needs REST API tests
+- Update `test/integration/gateway_test.go` - remove GraphQL references if any
 
 ## Migration Path
 
