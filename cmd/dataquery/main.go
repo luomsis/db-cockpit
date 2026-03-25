@@ -30,7 +30,6 @@ var (
 // @title Data Query Service API
 // @version 1.0
 // @description RESTful API for querying time series data from TimescaleDB
-// @host localhost:8084
 // @BasePath /api/v1
 func main() {
 	flag.Parse()
