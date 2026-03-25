@@ -108,7 +108,8 @@ func TestGetMetrics(t *testing.T) {
 	handler := NewHandler(mockService)
 
 	ctx, reqCtx := createTestRequestContext("")
-	reqCtx.Params = param.Params{{Key: "endpoint", Value: "/api/metrics"}}
+	// Use query parameter instead of path parameter
+	reqCtx.Request.SetRequestURI("/metrics?endpoint=/api/metrics")
 
 	handler.GetMetrics(ctx, reqCtx)
 
@@ -129,12 +130,38 @@ func TestGetMetrics(t *testing.T) {
 	}
 }
 
+func TestGetMetrics_MissingEndpoint(t *testing.T) {
+	mockService := &mockDataQueryService{
+		metrics: []string{"cpu_usage", "memory_usage"},
+	}
+	handler := NewHandler(mockService)
+
+	ctx, reqCtx := createTestRequestContext("")
+	// No endpoint query parameter provided
+	reqCtx.Request.SetRequestURI("/metrics")
+
+	handler.GetMetrics(ctx, reqCtx)
+
+	if reqCtx.Response.StatusCode() != 400 {
+		t.Errorf("GetMetrics() status = %d, want 400", reqCtx.Response.StatusCode())
+	}
+
+	var resp ErrorResponse
+	if err := json.Unmarshal(reqCtx.Response.Body(), &resp); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if resp.Error.Code != "INVALID_PARAMETER" {
+		t.Errorf("GetMetrics() error code = %s, want INVALID_PARAMETER", resp.Error.Code)
+	}
+}
+
 func TestGetMetrics_ServiceError(t *testing.T) {
 	mockService := &mockDataQueryService{err: context.Canceled}
 	handler := NewHandler(mockService)
 
 	ctx, reqCtx := createTestRequestContext("")
-	reqCtx.Params = param.Params{{Key: "endpoint", Value: "/api/metrics"}}
+	reqCtx.Request.SetRequestURI("/metrics?endpoint=/api/metrics")
 
 	handler.GetMetrics(ctx, reqCtx)
 
@@ -163,8 +190,8 @@ func TestGetSeries(t *testing.T) {
 	handler := NewHandler(mockService)
 
 	ctx, reqCtx := createTestRequestContext("")
-	// Set query parameters via URI
-	reqCtx.Request.SetRequestURI("/series?endpoint=/api/metrics&metric=cpu_usage")
+	// Set query parameters via URI including required start and end time
+	reqCtx.Request.SetRequestURI("/series?endpoint=/api/metrics&metric=cpu_usage&start=2024-01-01T00:00:00Z&end=2024-01-01T01:00:00Z")
 
 	handler.GetSeries(ctx, reqCtx)
 
@@ -186,6 +213,34 @@ func TestGetSeries(t *testing.T) {
 	if len(resp.Data[0].Points) != 2 {
 		t.Errorf("GetSeries() points count = %d, want 2", len(resp.Data[0].Points))
 	}
+	// Check ID is string
+	if resp.Data[0].ID != "1" {
+		t.Errorf("GetSeries() ID = %s, want 1 (string)", resp.Data[0].ID)
+	}
+}
+
+func TestGetSeries_MissingTimeRange(t *testing.T) {
+	mockService := &mockDataQueryService{}
+	handler := NewHandler(mockService)
+
+	ctx, reqCtx := createTestRequestContext("")
+	// Missing start and end time parameters
+	reqCtx.Request.SetRequestURI("/series?endpoint=/api/metrics&metric=cpu_usage")
+
+	handler.GetSeries(ctx, reqCtx)
+
+	if reqCtx.Response.StatusCode() != 400 {
+		t.Errorf("GetSeries() status = %d, want 400", reqCtx.Response.StatusCode())
+	}
+
+	var resp ErrorResponse
+	if err := json.Unmarshal(reqCtx.Response.Body(), &resp); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if resp.Error.Code != "INVALID_PARAMETER" {
+		t.Errorf("GetSeries() error code = %s, want INVALID_PARAMETER", resp.Error.Code)
+	}
 }
 
 func TestGetSeries_ServiceError(t *testing.T) {
@@ -193,6 +248,8 @@ func TestGetSeries_ServiceError(t *testing.T) {
 	handler := NewHandler(mockService)
 
 	ctx, reqCtx := createTestRequestContext("")
+	reqCtx.Request.SetRequestURI("/series?start=2024-01-01T00:00:00Z&end=2024-01-01T01:00:00Z")
+
 	handler.GetSeries(ctx, reqCtx)
 
 	if reqCtx.Response.StatusCode() != 500 {
@@ -234,15 +291,18 @@ func TestGetSeriesByID(t *testing.T) {
 		t.Errorf("GetSeriesByID() status = %d, want 200", reqCtx.Response.StatusCode())
 	}
 
-	var resp SeriesDataDTO
+	var resp SeriesSingleResponse
 	if err := json.Unmarshal(reqCtx.Response.Body(), &resp); err != nil {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
 
-	if resp.ID != 1 {
-		t.Errorf("GetSeriesByID() ID = %d, want 1", resp.ID)
+	if resp.Data == nil {
+		t.Fatal("GetSeriesByID() data is nil")
 	}
-	if resp.Statistics == nil {
+	if resp.Data.ID != "1" {
+		t.Errorf("GetSeriesByID() ID = %s, want 1 (string)", resp.Data.ID)
+	}
+	if resp.Data.Statistics == nil {
 		t.Error("GetSeriesByID() statistics should not be nil")
 	}
 }
@@ -259,6 +319,15 @@ func TestGetSeriesByID_NotFound(t *testing.T) {
 	if reqCtx.Response.StatusCode() != 404 {
 		t.Errorf("GetSeriesByID() status = %d, want 404", reqCtx.Response.StatusCode())
 	}
+
+	var resp ErrorResponse
+	if err := json.Unmarshal(reqCtx.Response.Body(), &resp); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if resp.Error.Code != "NOT_FOUND" {
+		t.Errorf("GetSeriesByID() error code = %s, want NOT_FOUND", resp.Error.Code)
+	}
 }
 
 func TestGetSeriesByID_InvalidID(t *testing.T) {
@@ -272,6 +341,15 @@ func TestGetSeriesByID_InvalidID(t *testing.T) {
 
 	if reqCtx.Response.StatusCode() != 400 {
 		t.Errorf("GetSeriesByID() status = %d, want 400", reqCtx.Response.StatusCode())
+	}
+
+	var resp ErrorResponse
+	if err := json.Unmarshal(reqCtx.Response.Body(), &resp); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if resp.Error.Code != "INVALID_PARAMETER" {
+		t.Errorf("GetSeriesByID() error code = %s, want INVALID_PARAMETER", resp.Error.Code)
 	}
 }
 
@@ -290,7 +368,8 @@ func TestQuerySeries(t *testing.T) {
 	}
 	handler := NewHandler(mockService)
 
-	body := `{"endpoint": "/api/metrics", "metric": "cpu_usage"}`
+	// Use new request format with start/end time
+	body := `{"endpoints": ["/api/metrics"], "metrics": ["cpu_usage"], "start": "2024-01-01T00:00:00Z", "end": "2024-01-01T01:00:00Z"}`
 	ctx, reqCtx := createTestRequestContext(body)
 
 	handler.QuerySeries(ctx, reqCtx)
@@ -309,11 +388,35 @@ func TestQuerySeries(t *testing.T) {
 	}
 }
 
+func TestQuerySeries_MissingTimeRange(t *testing.T) {
+	mockService := &mockDataQueryService{}
+	handler := NewHandler(mockService)
+
+	// Missing start/end time
+	body := `{"endpoints": ["/api/metrics"], "metrics": ["cpu_usage"]}`
+	ctx, reqCtx := createTestRequestContext(body)
+
+	handler.QuerySeries(ctx, reqCtx)
+
+	if reqCtx.Response.StatusCode() != 400 {
+		t.Errorf("QuerySeries() status = %d, want 400", reqCtx.Response.StatusCode())
+	}
+
+	var resp ErrorResponse
+	if err := json.Unmarshal(reqCtx.Response.Body(), &resp); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if resp.Error.Code != "INVALID_PARAMETER" {
+		t.Errorf("QuerySeries() error code = %s, want INVALID_PARAMETER", resp.Error.Code)
+	}
+}
+
 func TestQuerySeries_ServiceError(t *testing.T) {
 	mockService := &mockDataQueryService{err: context.Canceled}
 	handler := NewHandler(mockService)
 
-	ctx, reqCtx := createTestRequestContext("{}")
+	ctx, reqCtx := createTestRequestContext(`{"start": "2024-01-01T00:00:00Z", "end": "2024-01-01T01:00:00Z"}`)
 
 	handler.QuerySeries(ctx, reqCtx)
 

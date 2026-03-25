@@ -35,9 +35,14 @@ type SeriesResponse struct {
 	Data []SeriesDataDTO `json:"data"`
 }
 
+// SeriesSingleResponse is the response for a single series
+type SeriesSingleResponse struct {
+	Data *SeriesDataDTO `json:"data"`
+}
+
 // SeriesDataDTO is the JSON representation of SeriesData
 type SeriesDataDTO struct {
-	ID               int64                `json:"id"`
+	ID               string               `json:"id"`
 	Endpoint         string               `json:"endpoint"`
 	Metric           string               `json:"metric"`
 	Labels           map[string]string    `json:"labels"`
@@ -72,7 +77,29 @@ type SeriesStatisticsDTO struct {
 
 // ErrorResponse is the standard error response
 type ErrorResponse struct {
-	Error string `json:"error"`
+	Error ErrorDetail `json:"error"`
+}
+
+// ErrorDetail contains the error code and message
+type ErrorDetail struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// SeriesQueryRequestBody is the request body for POST /series/query
+type SeriesQueryRequestBody struct {
+	Endpoints   []string           `json:"endpoints"`
+	Metrics     []string           `json:"metrics"`
+	Labels      string             `json:"labels"`
+	Start       *time.Time         `json:"start"`
+	End         *time.Time         `json:"end"`
+	Aggregation *AggregationInput  `json:"aggregation"`
+}
+
+// AggregationInput is the input for aggregation
+type AggregationInput struct {
+	Interval string     `json:"interval"`
+	Function AggFunction `json:"function"`
 }
 
 // Handlers
@@ -81,24 +108,24 @@ type ErrorResponse struct {
 func (h *Handler) GetEndpoints(ctx context.Context, c *app.RequestContext) {
 	endpoints, err := h.service.GetEndpoints(ctx)
 	if err != nil {
-		c.JSON(500, ErrorResponse{Error: err.Error()})
+		c.JSON(500, ErrorResponse{Error: ErrorDetail{Code: "INTERNAL_ERROR", Message: err.Error()}})
 		return
 	}
 
 	c.JSON(200, EndpointsResponse{Data: endpoints})
 }
 
-// GetMetrics handles GET /endpoints/:endpoint/metrics requests
+// GetMetrics handles GET /metrics requests with endpoint as query parameter
 func (h *Handler) GetMetrics(ctx context.Context, c *app.RequestContext) {
-	endpoint := c.Param("endpoint")
+	endpoint := c.Query("endpoint")
 	if endpoint == "" {
-		c.JSON(400, ErrorResponse{Error: "endpoint parameter is required"})
+		c.JSON(400, ErrorResponse{Error: ErrorDetail{Code: "INVALID_PARAMETER", Message: "endpoint query parameter is required"}})
 		return
 	}
 
 	metrics, err := h.service.GetMetrics(ctx, endpoint)
 	if err != nil {
-		c.JSON(500, ErrorResponse{Error: err.Error()})
+		c.JSON(500, ErrorResponse{Error: ErrorDetail{Code: "INTERNAL_ERROR", Message: err.Error()}})
 		return
 	}
 
@@ -109,13 +136,13 @@ func (h *Handler) GetMetrics(ctx context.Context, c *app.RequestContext) {
 func (h *Handler) GetSeries(ctx context.Context, c *app.RequestContext) {
 	query, err := h.parseSeriesQuery(c)
 	if err != nil {
-		c.JSON(400, ErrorResponse{Error: err.Error()})
+		c.JSON(400, ErrorResponse{Error: ErrorDetail{Code: "INVALID_PARAMETER", Message: err.Error()}})
 		return
 	}
 
 	series, err := h.service.QuerySeries(ctx, query)
 	if err != nil {
-		c.JSON(500, ErrorResponse{Error: err.Error()})
+		c.JSON(500, ErrorResponse{Error: ErrorDetail{Code: "INTERNAL_ERROR", Message: err.Error()}})
 		return
 	}
 
@@ -126,55 +153,67 @@ func (h *Handler) GetSeries(ctx context.Context, c *app.RequestContext) {
 func (h *Handler) GetSeriesByID(ctx context.Context, c *app.RequestContext) {
 	idStr := c.Param("id")
 	if idStr == "" {
-		c.JSON(400, ErrorResponse{Error: "id parameter is required"})
+		c.JSON(400, ErrorResponse{Error: ErrorDetail{Code: "INVALID_PARAMETER", Message: "id parameter is required"}})
 		return
 	}
 
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		c.JSON(400, ErrorResponse{Error: "invalid id parameter"})
+		c.JSON(400, ErrorResponse{Error: ErrorDetail{Code: "INVALID_PARAMETER", Message: "invalid id parameter"}})
 		return
 	}
 
-	timeRange, err := h.parseTimeRange(c)
-	if err != nil {
-		c.JSON(400, ErrorResponse{Error: err.Error()})
-		return
-	}
+	timeRange := h.parseOptionalTimeRange(c)
 
 	series, err := h.service.GetSeriesByID(ctx, id, &timeRange)
 	if err != nil {
-		c.JSON(500, ErrorResponse{Error: err.Error()})
+		c.JSON(500, ErrorResponse{Error: ErrorDetail{Code: "INTERNAL_ERROR", Message: err.Error()}})
 		return
 	}
 
 	if series == nil {
-		c.JSON(404, ErrorResponse{Error: "series not found"})
+		c.JSON(404, ErrorResponse{Error: ErrorDetail{Code: "NOT_FOUND", Message: "series not found"}})
 		return
 	}
 
-	c.JSON(200, toSeriesDataDTO(series))
+	dto := toSeriesDataDTO(series)
+	c.JSON(200, SeriesSingleResponse{Data: &dto})
 }
 
 // QuerySeries handles POST /series/query requests for complex queries
 func (h *Handler) QuerySeries(ctx context.Context, c *app.RequestContext) {
-	var req SeriesQueryRequest
+	var req SeriesQueryRequestBody
 	if err := c.BindJSON(&req); err != nil {
-		c.JSON(400, ErrorResponse{Error: err.Error()})
+		c.JSON(400, ErrorResponse{Error: ErrorDetail{Code: "INVALID_PARAMETER", Message: err.Error()}})
 		return
 	}
 
-	query := &SeriesQuery{
-		Endpoint:    req.Endpoint,
-		Metric:      req.Metric,
-		LabelFilter: req.LabelFilter,
-		TimeRange:   req.TimeRange,
-		Limit:       req.Limit,
+	// Validate time range
+	if req.Start == nil || req.End == nil {
+		c.JSON(400, ErrorResponse{Error: ErrorDetail{Code: "INVALID_PARAMETER", Message: "start and end time are required"}})
+		return
 	}
 
-	series, err := h.service.QuerySeries(ctx, query)
+	query := &MultiSeriesQuery{
+		Endpoints:   req.Endpoints,
+		Metrics:     req.Metrics,
+		LabelFilter: req.Labels,
+		TimeRange: TimeRange{
+			Start: *req.Start,
+			End:   *req.End,
+		},
+	}
+
+	if req.Aggregation != nil {
+		query.Aggregation = &Aggregation{
+			Interval: req.Aggregation.Interval,
+			Function: req.Aggregation.Function,
+		}
+	}
+
+	series, err := h.service.QuerySeriesMulti(ctx, query)
 	if err != nil {
-		c.JSON(500, ErrorResponse{Error: err.Error()})
+		c.JSON(500, ErrorResponse{Error: ErrorDetail{Code: "INTERNAL_ERROR", Message: err.Error()}})
 		return
 	}
 
@@ -205,7 +244,7 @@ func (h *Handler) parseSeriesQuery(c *app.RequestContext) (*SeriesQuery, error) 
 		query.Limit = limit
 	}
 
-	// Parse time range
+	// Parse time range (required)
 	timeRange, err := h.parseTimeRange(c)
 	if err != nil {
 		return nil, err
@@ -215,8 +254,45 @@ func (h *Handler) parseSeriesQuery(c *app.RequestContext) (*SeriesQuery, error) 
 	return query, nil
 }
 
-// parseTimeRange parses time range from query parameters
+// parseTimeRange parses time range from query parameters (required)
 func (h *Handler) parseTimeRange(c *app.RequestContext) (TimeRange, error) {
+	startStr := c.Query("start")
+	endStr := c.Query("end")
+
+	// Time range is required for GetSeries
+	if startStr == "" || endStr == "" {
+		return TimeRange{}, &TimeRangeError{Message: "start and end time parameters are required"}
+	}
+
+	var timeRange TimeRange
+
+	start, err := time.Parse(time.RFC3339, startStr)
+	if err != nil {
+		// Try parsing as Unix timestamp
+		unixStart, err := strconv.ParseInt(startStr, 10, 64)
+		if err != nil {
+			return TimeRange{}, &TimeParseError{Field: "start", Value: startStr}
+		}
+		start = time.Unix(unixStart, 0)
+	}
+	timeRange.Start = start
+
+	end, err := time.Parse(time.RFC3339, endStr)
+	if err != nil {
+		// Try parsing as Unix timestamp
+		unixEnd, err := strconv.ParseInt(endStr, 10, 64)
+		if err != nil {
+			return TimeRange{}, &TimeParseError{Field: "end", Value: endStr}
+		}
+		end = time.Unix(unixEnd, 0)
+	}
+	timeRange.End = end
+
+	return timeRange, nil
+}
+
+// parseOptionalTimeRange parses time range from query parameters (optional, defaults to last hour)
+func (h *Handler) parseOptionalTimeRange(c *app.RequestContext) TimeRange {
 	timeRange := TimeRange{
 		Start: time.Now().Add(-1 * time.Hour), // Default: last 1 hour
 		End:   time.Now(),
@@ -227,12 +303,12 @@ func (h *Handler) parseTimeRange(c *app.RequestContext) (TimeRange, error) {
 		if err != nil {
 			// Try parsing as Unix timestamp
 			unixStart, err := strconv.ParseInt(startStr, 10, 64)
-			if err != nil {
-				return TimeRange{}, err
+			if err == nil {
+				timeRange.Start = time.Unix(unixStart, 0)
 			}
-			start = time.Unix(unixStart, 0)
+		} else {
+			timeRange.Start = start
 		}
-		timeRange.Start = start
 	}
 
 	if endStr := c.Query("end"); endStr != "" {
@@ -240,21 +316,40 @@ func (h *Handler) parseTimeRange(c *app.RequestContext) (TimeRange, error) {
 		if err != nil {
 			// Try parsing as Unix timestamp
 			unixEnd, err := strconv.ParseInt(endStr, 10, 64)
-			if err != nil {
-				return TimeRange{}, err
+			if err == nil {
+				timeRange.End = time.Unix(unixEnd, 0)
 			}
-			end = time.Unix(unixEnd, 0)
+		} else {
+			timeRange.End = end
 		}
-		timeRange.End = end
 	}
 
-	return timeRange, nil
+	return timeRange
+}
+
+// TimeRangeError indicates that time range parameters are missing
+type TimeRangeError struct {
+	Message string
+}
+
+func (e *TimeRangeError) Error() string {
+	return e.Message
+}
+
+// TimeParseError indicates that a time parameter could not be parsed
+type TimeParseError struct {
+	Field string
+	Value string
+}
+
+func (e *TimeParseError) Error() string {
+	return "invalid " + e.Field + " time format: " + e.Value
 }
 
 // toSeriesDataDTO converts SeriesData to SeriesDataDTO
 func toSeriesDataDTO(s *SeriesData) SeriesDataDTO {
 	return SeriesDataDTO{
-		ID:               s.Meta.ID,
+		ID:               strconv.FormatInt(s.Meta.ID, 10),
 		Endpoint:         s.Meta.Endpoint,
 		Metric:           s.Meta.Metric,
 		Labels:           s.Meta.Labels,
