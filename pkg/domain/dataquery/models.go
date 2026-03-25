@@ -20,12 +20,6 @@ type SeriesMeta struct {
 	CreatedAt  time.Time
 }
 
-// LabelEntry represents a single label key-value pair
-type LabelEntry struct {
-	Key   string
-	Value string
-}
-
 // DataPoint represents a single data point in a time series
 type DataPoint struct {
 	Time  time.Time
