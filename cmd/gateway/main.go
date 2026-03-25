@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -97,10 +98,12 @@ func main() {
 	// Data Query Service proxy target
 	dataQueryAddr := fmt.Sprintf("http://%s:%d", cfg.Server.DataQuery.Host, cfg.Server.DataQuery.Port)
 
-	// Register GraphQL routes - proxy to Data Query Service
+	// Register Data Query REST API proxy
 	h.NoRoute(func(c context.Context, ctx *app.RequestContext) {
 		path := string(ctx.URI().Path())
-		if path == "/graphql" || path == "/graphql/playground" {
+		if strings.HasPrefix(path, "/api/v1/endpoints") ||
+			strings.HasPrefix(path, "/api/v1/metrics") ||
+			strings.HasPrefix(path, "/api/v1/series") {
 			proxyToDataQuery(ctx, dataQueryAddr)
 		} else {
 			ctx.AbortWithStatus(404)
@@ -199,10 +202,11 @@ func printEndpoints(dataQueryAddr string) {
 	fmt.Println("\n========================================")
 	fmt.Println("Database Intelligent Cockpit API Gateway")
 	fmt.Println("========================================")
-	fmt.Println("\n📡 GraphQL Endpoint (proxied to Data Query Service):")
-	fmt.Println("  POST http://localhost:8080/graphql")
-	fmt.Println("  GET  http://localhost:8080/graphql/playground")
-	fmt.Printf("  → Proxied to: %s/graphql\n", dataQueryAddr)
+	fmt.Println("\n📡 Data Query Service REST API (proxied):")
+	fmt.Println("  GET  http://localhost:8080/api/v1/endpoints")
+	fmt.Println("  GET  http://localhost:8080/api/v1/metrics")
+	fmt.Println("  GET  http://localhost:8080/api/v1/series")
+	fmt.Printf("  → Proxied to: %s\n", dataQueryAddr)
 	fmt.Println("\n🔐 Authentication:")
 	fmt.Println("  Authorization: Bearer tenant_id:user_id:role")
 	fmt.Println("  Example: Bearer tenant-001:user-001:admin")
