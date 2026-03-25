@@ -28,7 +28,7 @@ A comprehensive database management and optimization platform built with Golang,
 │  │       Domain Services           │                           │
 │  │  ┌──────────────┐ ┌────────────┐│                           │
 │  │  │ Data Query   │ │SQL Govern- ││                           │
-│  │  │  (GraphQL)   │ │   ance     ││                           │
+│  │  │  (REST API)  │ │   ance     ││                           │
 │  │  └──────────────┘ └────────────┘│                           │
 │  │  ┌──────────────┐ ┌────────────┐│                           │
 │  │  │ Performance  │ │  Dynamic   ││                           │
@@ -76,7 +76,7 @@ A comprehensive database management and optimization platform built with Golang,
 | Path | Protocol |
 |------|----------|
 | Frontend ↔ Gateway | RESTful API |
-| Frontend ↔ Data Query | GraphQL (`/graphql`) |
+| Frontend ↔ Data Query | REST API (`/api/v1/*`) |
 | Domain Layer ↔ Agent | RPC (gRPC) |
 | Domain Layer ↔ Task Engine | RPC (gRPC) |
 | Domain Layer internal | Direct function calls |
@@ -100,17 +100,17 @@ db-cockpit/
 │   │   ├── middleware/    # Auth, RBAC, Audit middleware
 │   │   └── router/        # Route registration
 │   ├── domain/            # Domain Layer
-│   │   ├── dataquery/     # Data Query (GraphQL)
+│   │   ├── dataquery/     # Data Query (REST API)
 │   │   │   ├── service.go       # Service interface
 │   │   │   ├── impl.go          # Service implementation
+│   │   │   ├── handler.go       # REST handlers
 │   │   │   ├── repository.go    # Repository interface
 │   │   │   ├── pg_repository.go # PostgreSQL/TimescaleDB impl
 │   │   │   ├── models.go        # Domain models
-│   │   │   ├── labels/          # Label expression parser
-│   │   │   │   ├── ast.go       # AST types
-│   │   │   │   ├── parser.go    # Parser implementation
-│   │   │   │   └── sql.go       # SQL translation
-│   │   │   └── graph/           # GraphQL schema & resolvers
+│   │   │   └── labels/          # Label expression parser
+│   │   │       ├── ast.go       # AST types
+│   │   │       ├── parser.go    # Parser implementation
+│   │   │       └── sql.go       # SQL translation
 │   │   ├── sqlgovernance/ # SQL Governance
 │   │   ├── performance/   # Performance Diagnosis
 │   │   ├── threshold/     # Dynamic Threshold
@@ -152,7 +152,7 @@ db-cockpit/
 
 - **Framework**: Hertz (CloudWeGo)
 - **RPC**: Kitex with Protobuf
-- **GraphQL**: gqlgen
+- **API Documentation**: Swagger/OpenAPI
 - **Databases**:
   - TimescaleDB (PostgreSQL extension for time-series)
   - Neo4j (Graph database)
@@ -225,16 +225,16 @@ The project includes convenient scripts for managing all services:
 
 ```bash
 # Data Query Service
-./scripts/dev/services.sh start-dataquery
-./scripts/dev/services.sh stop-dataquery
+./scripts/dev/services.sh start dataquery
+./scripts/dev/services.sh stop dataquery
 
 # Gateway Service
-./scripts/dev/services.sh start-gateway
-./scripts/dev/services.sh stop-gateway
+./scripts/dev/services.sh start gateway
+./scripts/dev/services.sh stop gateway
 
 # Frontend (Next.js)
-./scripts/dev/services.sh start-frontend
-./scripts/dev/services.sh stop-frontend
+./scripts/dev/services.sh start frontend
+./scripts/dev/services.sh stop frontend
 ```
 
 > **Note**: PostgreSQL/TimescaleDB should be running before starting services. Use `docker-compose up -d` or your preferred method to start the database.
@@ -254,7 +254,7 @@ The project includes convenient scripts for managing all services:
 # Reset data (clear + seed)
 ./scripts/db/db-data.sh reset
 
-# Quick test GraphQL endpoints
+# Quick test REST API endpoints
 ./scripts/db/db-data.sh test
 ```
 
@@ -265,9 +265,9 @@ After starting all services, the following endpoints are available:
 | Service | URL | Description |
 |---------|-----|-------------|
 | Frontend | http://localhost:3000 | Dashboard UI |
-| Gateway GraphQL | http://localhost:8080/graphql | GraphQL API |
-| Gateway Playground | http://localhost:8080/graphql/playground | GraphQL IDE |
-| Data Query GraphQL | http://localhost:8084/graphql | Direct GraphQL access |
+| Gateway API | http://localhost:8080/api/v1 | REST API via Gateway |
+| Data Query API | http://localhost:8084/api/v1 | Direct REST API access |
+| Data Query Swagger | http://localhost:8084/swagger/index.html | API Documentation |
 
 ### Run with Docker
 
@@ -318,85 +318,56 @@ This inserts:
 
 ## API Endpoints
 
-### GraphQL (Data Query Service)
+### Data Query Service (REST API)
 
-**Endpoint**: `POST /graphql`
+The Data Query Service provides REST API endpoints for time-series queries.
 
-The Data Query Service provides comprehensive time-series query capabilities through GraphQL.
+**Base URL**: `http://localhost:8084/api/v1`
 
-#### Queries
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/endpoints` | GET | Get all distinct endpoints |
+| `/metrics?endpoint=<ep>` | GET | Get all metrics for an endpoint |
+| `/series?endpoint=&metric=&start=&end=&limit=` | GET | Query series with filters |
+| `/series/:id` | GET | Get a single series by ID |
+| `/series/query` | POST | Complex query with JSON body |
 
-| Query | Description |
-|-------|-------------|
-| `endpoints` | Get all distinct endpoints |
-| `metrics(endpoint: String!)` | Get all metrics for an endpoint |
-| `series(...)` | Query time-series data with filters |
-| `seriesById(id: ID!, ...)` | Get a single series by ID |
-| `seriesMulti(...)` | Query multiple series at once |
+#### Example Requests
 
-#### Example Queries
-
-```graphql
+```bash
 # Get all endpoints
-query {
-  endpoints
-}
+curl http://localhost:8084/api/v1/endpoints
 
 # Get metrics for an endpoint
-query {
-  metrics(endpoint: "/api/metrics")
-}
+curl "http://localhost:8084/api/v1/metrics?endpoint=/api/metrics"
 
 # Query series with time range
-query($tr: TimeRangeInput!) {
-  series(
-    endpoint: "/api/metrics"
-    metric: "cpu_usage"
-    timeRange: $tr
-    limit: 10
-  ) {
-    meta {
-      id
-      endpoint
-      metric
-      labels {
-        entries { key value }
-      }
-    }
-    points {
-      time
-      value
-    }
-    statistics {
-      min max avg sum count
-    }
-  }
-}
+curl "http://localhost:8084/api/v1/series?endpoint=/api/metrics&metric=cpu_usage&start=2024-01-01T00:00:00Z&end=2024-01-02T00:00:00Z&limit=10"
 
-# Query with label filter (PromQL-style)
-query($tr: TimeRangeInput!) {
-  series(
-    labels: { expression: "host=\"server1\" AND region=\"us-east\"" }
-    timeRange: $tr
-  ) {
-    meta { id metric }
-    points { time value }
-  }
-}
+# Get series by ID
+curl http://localhost:8084/api/v1/series/123
 
-# Query with aggregation
-query($tr: TimeRangeInput!) {
-  seriesMulti(
-    endpoints: ["/api/metrics"]
-    metrics: ["cpu_usage", "memory_usage"]
-    timeRange: $tr
-    aggregation: { interval: "5m", function: AVG }
-  ) {
-    meta { id metric }
-    aggregatedPoints { time value count }
-  }
-}
+# Complex query with POST
+curl -X POST http://localhost:8084/api/v1/series/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "endpoints": ["/api/metrics"],
+    "metrics": ["cpu_usage"],
+    "start": "2024-01-01T00:00:00Z",
+    "end": "2024-01-02T00:00:00Z"
+  }'
 ```
+
+#### Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `endpoint` | string | Filter by endpoint |
+| `metric` | string | Filter by metric name |
+| `label_filter` | string | PromQL-style label expression |
+| `start` | string | Start time (RFC3339 or Unix timestamp) |
+| `end` | string | End time (RFC3339 or Unix timestamp) |
+| `limit` | int | Maximum number of results |
 
 #### Label Filter Syntax
 
@@ -412,22 +383,9 @@ Supports PromQL-style label expressions:
 | `OR` | Logical OR | `host="server1" OR host="server2"` |
 | `()` | Grouping | `(host="s1" OR host="s2") AND env="prod"` |
 
-#### Aggregation Functions
+**API Documentation**: Swagger UI available at `http://localhost:8084/swagger/index.html`
 
-- `AVG` - Average value
-- `MIN` - Minimum value
-- `MAX` - Maximum value
-- `SUM` - Sum of values
-- `COUNT` - Count of points
-
-#### Time Intervals
-
-Supports PostgreSQL interval format: `1m`, `5m`, `1h`, `1d`, etc.
-
-**Development Tools**:
-- `GET /graphql/playground` - GraphQL playground for testing queries
-
-### REST API
+### Gateway REST API
 
 #### SQL Governance
 - `POST /api/v1/sql/review` - Review SQL before execution
@@ -489,7 +447,7 @@ Domain Layer (Performance)
 ### Add New RPC Service (for Agent/Task Engine communication)
 
 1. Create proto file in `api/proto/<service>/`
-2. Run `./scripts/generate_proto.sh` to generate Go code
+2. Run `./scripts/build/generate_proto.sh` to generate Go code
 3. Create RPC client in `pkg/rpc/<service>/client.go`
 4. Create adapter in `pkg/rpc/adapter/<service>_adapter.go`
 
@@ -564,7 +522,7 @@ See `configs/config.yaml` for all configuration options.
 | Document | Description |
 |----------|-------------|
 | [Architecture Diagram Prompt](docs/architecture-diagram-prompt.md) | Prompts for generating system architecture diagrams |
-| [GraphQL API Guide](docs/graphql-api-guide.md) | Comprehensive GraphQL API usage guide |
+| [GraphQL API Guide](docs/graphql-api-guide.md) | Legacy GraphQL API documentation (superseded by REST API) |
 
 ### Specifications
 
