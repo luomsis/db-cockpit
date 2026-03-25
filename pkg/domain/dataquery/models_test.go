@@ -5,25 +5,6 @@ import (
 	"time"
 )
 
-func TestAggFunctionValues(t *testing.T) {
-	tests := []struct {
-		value    AggFunction
-		expected string
-	}{
-		{AggAvg, "AVG"},
-		{AggMin, "MIN"},
-		{AggMax, "MAX"},
-		{AggSum, "SUM"},
-		{AggCount, "COUNT"},
-	}
-
-	for _, tt := range tests {
-		if string(tt.value) != tt.expected {
-			t.Errorf("AggFunction %v = %q, want %q", tt.value, string(tt.value), tt.expected)
-		}
-	}
-}
-
 func TestTimeRange(t *testing.T) {
 	now := time.Now()
 	start := now.Add(-1 * time.Hour)
@@ -78,22 +59,6 @@ func TestDataPoint(t *testing.T) {
 	}
 	if point.Value != 75.5 {
 		t.Errorf("DataPoint.Value = %f, want 75.5", point.Value)
-	}
-}
-
-func TestAggregatedPoint(t *testing.T) {
-	now := time.Now()
-	point := AggregatedPoint{
-		Time:  now,
-		Value: 75.0,
-		Count: 10,
-	}
-
-	if point.Count != 10 {
-		t.Errorf("AggregatedPoint.Count = %d, want 10", point.Count)
-	}
-	if point.Value != 75.0 {
-		t.Errorf("AggregatedPoint.Value = %f, want 75.0", point.Value)
 	}
 }
 
@@ -152,20 +117,6 @@ func TestSeriesData(t *testing.T) {
 	}
 }
 
-func TestAggregation(t *testing.T) {
-	agg := Aggregation{
-		Interval: "5m",
-		Function: AggAvg,
-	}
-
-	if agg.Interval != "5m" {
-		t.Errorf("Aggregation.Interval = %q, want %q", agg.Interval, "5m")
-	}
-	if agg.Function != AggAvg {
-		t.Errorf("Aggregation.Function = %v, want %v", agg.Function, AggAvg)
-	}
-}
-
 func TestSeriesQuery(t *testing.T) {
 	now := time.Now()
 	query := SeriesQuery{
@@ -197,10 +148,6 @@ func TestMultiSeriesQuery(t *testing.T) {
 			Start: now.Add(-1 * time.Hour),
 			End:   now,
 		},
-		Aggregation: &Aggregation{
-			Interval: "5m",
-			Function: AggAvg,
-		},
 	}
 
 	if len(query.Endpoints) != 2 {
@@ -208,9 +155,6 @@ func TestMultiSeriesQuery(t *testing.T) {
 	}
 	if len(query.Metrics) != 2 {
 		t.Errorf("MultiSeriesQuery.Metrics length = %d, want 2", len(query.Metrics))
-	}
-	if query.Aggregation == nil {
-		t.Error("MultiSeriesQuery.Aggregation should not be nil")
 	}
 }
 
@@ -236,17 +180,6 @@ func TestRepositoryRequestTypes(t *testing.T) {
 	}
 	if len(pointsReq.SeriesIDs) != 3 {
 		t.Errorf("PointsQueryRequest.SeriesIDs length = %d", len(pointsReq.SeriesIDs))
-	}
-
-	// AggregationRequest
-	aggReq := AggregationRequest{
-		SeriesIDs: []int64{1, 2},
-		TimeRange: TimeRange{Start: now, End: now},
-		Interval:  "5m",
-		Function:  "AVG",
-	}
-	if aggReq.Interval != "5m" {
-		t.Errorf("AggregationRequest.Interval = %q", aggReq.Interval)
 	}
 
 	// StatsRequest

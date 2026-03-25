@@ -1,35 +1,5 @@
 basePath: /api/v1
 definitions:
-  pkg_domain_dataquery.AggFunction:
-    enum:
-    - AVG
-    - MIN
-    - MAX
-    - SUM
-    - COUNT
-    type: string
-    x-enum-varnames:
-    - AggAvg
-    - AggMin
-    - AggMax
-    - AggSum
-    - AggCount
-  pkg_domain_dataquery.AggregatedPointDTO:
-    properties:
-      count:
-        type: integer
-      time:
-        type: string
-      value:
-        type: number
-    type: object
-  pkg_domain_dataquery.AggregationInput:
-    properties:
-      function:
-        $ref: '#/definitions/pkg_domain_dataquery.AggFunction'
-      interval:
-        type: string
-    type: object
   pkg_domain_dataquery.DataPointDTO:
     properties:
       time:
@@ -65,10 +35,6 @@ definitions:
     type: object
   pkg_domain_dataquery.SeriesDataDTO:
     properties:
-      aggregated_points:
-        items:
-          $ref: '#/definitions/pkg_domain_dataquery.AggregatedPointDTO'
-        type: array
       created_at:
         type: string
       endpoint:
@@ -92,8 +58,6 @@ definitions:
     type: object
   pkg_domain_dataquery.SeriesQueryRequestBody:
     properties:
-      aggregation:
-        $ref: '#/definitions/pkg_domain_dataquery.AggregationInput'
       end:
         type: string
       endpoints:

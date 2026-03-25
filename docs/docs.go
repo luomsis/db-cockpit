@@ -261,48 +261,6 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "pkg_domain_dataquery.AggFunction": {
-            "type": "string",
-            "enum": [
-                "AVG",
-                "MIN",
-                "MAX",
-                "SUM",
-                "COUNT"
-            ],
-            "x-enum-varnames": [
-                "AggAvg",
-                "AggMin",
-                "AggMax",
-                "AggSum",
-                "AggCount"
-            ]
-        },
-        "pkg_domain_dataquery.AggregatedPointDTO": {
-            "type": "object",
-            "properties": {
-                "count": {
-                    "type": "integer"
-                },
-                "time": {
-                    "type": "string"
-                },
-                "value": {
-                    "type": "number"
-                }
-            }
-        },
-        "pkg_domain_dataquery.AggregationInput": {
-            "type": "object",
-            "properties": {
-                "function": {
-                    "$ref": "#/definitions/pkg_domain_dataquery.AggFunction"
-                },
-                "interval": {
-                    "type": "string"
-                }
-            }
-        },
         "pkg_domain_dataquery.DataPointDTO": {
             "type": "object",
             "properties": {
@@ -358,12 +316,6 @@ const docTemplate = `{
         "pkg_domain_dataquery.SeriesDataDTO": {
             "type": "object",
             "properties": {
-                "aggregated_points": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/pkg_domain_dataquery.AggregatedPointDTO"
-                    }
-                },
                 "created_at": {
                     "type": "string"
                 },
@@ -399,9 +351,6 @@ const docTemplate = `{
         "pkg_domain_dataquery.SeriesQueryRequestBody": {
             "type": "object",
             "properties": {
-                "aggregation": {
-                    "$ref": "#/definitions/pkg_domain_dataquery.AggregationInput"
-                },
                 "end": {
                     "type": "string"
                 },

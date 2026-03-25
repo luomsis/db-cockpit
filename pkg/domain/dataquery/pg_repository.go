@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -173,51 +172,6 @@ func (r *PGRepository) GetSeriesPoints(ctx context.Context, req *PointsQueryRequ
 		var point DataPoint
 		if err := rows.Scan(&seriesID, &point.Time, &point.Value); err != nil {
 			return nil, fmt.Errorf("failed to scan point: %w", err)
-		}
-		result[seriesID] = append(result[seriesID], point)
-	}
-
-	return result, nil
-}
-
-// GetAggregatedPoints retrieves aggregated data points for multiple series
-func (r *PGRepository) GetAggregatedPoints(ctx context.Context, req *AggregationRequest) (map[int64][]AggregatedPoint, error) {
-	if len(req.SeriesIDs) == 0 {
-		return map[int64][]AggregatedPoint{}, nil
-	}
-
-	aggFunc := strings.ToUpper(req.Function)
-	switch aggFunc {
-	case "AVG", "MIN", "MAX", "SUM", "COUNT":
-		// valid
-	default:
-		aggFunc = "AVG"
-	}
-
-	query := fmt.Sprintf(`
-		SELECT series_id,
-			   time_bucket('%s', "time") AS bucket,
-			   %s(value) AS value,
-			   COUNT(*) AS count
-		FROM series_points
-		WHERE series_id = ANY($1)
-		  AND "time" >= $2 AND "time" <= $3
-		GROUP BY series_id, bucket
-		ORDER BY bucket
-	`, req.Interval, aggFunc)
-
-	rows, err := r.pool.Query(ctx, query, req.SeriesIDs, req.TimeRange.Start, req.TimeRange.End)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query aggregated points: %w", err)
-	}
-	defer rows.Close()
-
-	result := make(map[int64][]AggregatedPoint)
-	for rows.Next() {
-		var seriesID int64
-		var point AggregatedPoint
-		if err := rows.Scan(&seriesID, &point.Time, &point.Value, &point.Count); err != nil {
-			return nil, fmt.Errorf("failed to scan aggregated point: %w", err)
 		}
 		result[seriesID] = append(result[seriesID], point)
 	}

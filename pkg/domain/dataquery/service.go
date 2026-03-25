@@ -116,7 +116,7 @@ func (s *Service) QuerySeries(ctx context.Context, req *SeriesQuery) ([]*SeriesD
 	return result, nil
 }
 
-// QuerySeriesMulti queries multiple series at once with optional aggregation
+// QuerySeriesMulti queries multiple series at once
 func (s *Service) QuerySeriesMulti(ctx context.Context, req *MultiSeriesQuery) ([]*SeriesData, error) {
 	// Build series query request
 	queryReq := &SeriesQueryRequest{
@@ -159,41 +159,24 @@ func (s *Service) QuerySeriesMulti(ctx context.Context, req *MultiSeriesQuery) (
 		seriesIDs[i] = meta.ID
 	}
 
-	// Get data points or aggregated points
-	var pointsMap map[int64][]DataPoint
-	var aggPointsMap map[int64][]AggregatedPoint
-
-	if req.Aggregation != nil {
-		aggPointsMap, _ = s.repo.GetAggregatedPoints(ctx, &AggregationRequest{
-			SeriesIDs: seriesIDs,
-			TimeRange: req.TimeRange,
-			Interval:  req.Aggregation.Interval,
-			Function:  string(req.Aggregation.Function),
-		})
-	} else {
-		pointsMap, _ = s.repo.GetSeriesPoints(ctx, &PointsQueryRequest{
-			SeriesIDs: seriesIDs,
-			TimeRange: req.TimeRange,
-		})
+	// Get data points
+	pointsMap, err := s.repo.GetSeriesPoints(ctx, &PointsQueryRequest{
+		SeriesIDs: seriesIDs,
+		TimeRange: req.TimeRange,
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	// Build result
 	result := make([]*SeriesData, len(allSeries))
 	for i, meta := range allSeries {
 		result[i] = &SeriesData{
-			Meta: meta,
+			Meta:   meta,
+			Points: pointsMap[meta.ID],
 		}
-		if pointsMap != nil {
-			result[i].Points = pointsMap[meta.ID]
-			if result[i].Points == nil {
-				result[i].Points = []DataPoint{}
-			}
-		}
-		if aggPointsMap != nil {
-			result[i].AggregatedPoints = aggPointsMap[meta.ID]
-			if result[i].AggregatedPoints == nil {
-				result[i].AggregatedPoints = []AggregatedPoint{}
-			}
+		if result[i].Points == nil {
+			result[i].Points = []DataPoint{}
 		}
 	}
 

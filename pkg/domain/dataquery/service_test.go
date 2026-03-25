@@ -8,13 +8,12 @@ import (
 
 // mockRepository implements Repository for testing
 type mockRepository struct {
-	endpoints        []string
-	metrics          map[string][]string
-	series           []SeriesMeta
-	points           map[int64][]DataPoint
-	aggregatedPoints map[int64][]AggregatedPoint
-	statistics       map[int64]*SeriesStatistics
-	err              error
+	endpoints  []string
+	metrics    map[string][]string
+	series     []SeriesMeta
+	points     map[int64][]DataPoint
+	statistics map[int64]*SeriesStatistics
+	err        error
 }
 
 func newMockRepository() *mockRepository {
@@ -33,7 +32,6 @@ func newMockRepository() *mockRepository {
 			1: {{Time: time.Now(), Value: 75.5}, {Time: time.Now().Add(-5 * time.Minute), Value: 72.3}},
 			2: {{Time: time.Now(), Value: 62.1}, {Time: time.Now().Add(-5 * time.Minute), Value: 60.8}},
 		},
-		aggregatedPoints: map[int64][]AggregatedPoint{},
 		statistics: map[int64]*SeriesStatistics{
 			1: {Min: 70.0, Max: 80.0, Avg: 75.0, Sum: 150.0, Count: 2},
 			2: {Min: 58.0, Max: 65.0, Avg: 61.5, Sum: 123.0, Count: 2},
@@ -95,13 +93,6 @@ func (m *mockRepository) GetSeriesPoints(ctx context.Context, req *PointsQueryRe
 		}
 	}
 	return result, nil
-}
-
-func (m *mockRepository) GetAggregatedPoints(ctx context.Context, req *AggregationRequest) (map[int64][]AggregatedPoint, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.aggregatedPoints, nil
 }
 
 func (m *mockRepository) GetSeriesStatistics(ctx context.Context, req *StatsRequest) (map[int64]*SeriesStatistics, error) {
@@ -304,11 +295,10 @@ func TestServiceQuerySeriesMulti(t *testing.T) {
 		req       *MultiSeriesQuery
 		wantCount int
 	}{
-		{"all series (no filter)", &MultiSeriesQuery{TimeRange: timeRange}, 2},                            // Returns all when no endpoints/metrics
-		{"by endpoints", &MultiSeriesQuery{Endpoints: []string{"/api/metrics"}, TimeRange: timeRange}, 0}, // No metrics specified
-		{"by metrics", &MultiSeriesQuery{Metrics: []string{"cpu_usage"}, TimeRange: timeRange}, 0},        // No endpoints specified
+		{"all series (no filter)", &MultiSeriesQuery{TimeRange: timeRange}, 2},
+		{"by endpoints", &MultiSeriesQuery{Endpoints: []string{"/api/metrics"}, TimeRange: timeRange}, 0},
+		{"by metrics", &MultiSeriesQuery{Metrics: []string{"cpu_usage"}, TimeRange: timeRange}, 0},
 		{"by both", &MultiSeriesQuery{Endpoints: []string{"/api/metrics"}, Metrics: []string{"cpu_usage"}, TimeRange: timeRange}, 1},
-		{"with aggregation", &MultiSeriesQuery{Endpoints: []string{"/api/metrics"}, Metrics: []string{"cpu_usage"}, TimeRange: timeRange, Aggregation: &Aggregation{Interval: "5m", Function: AggAvg}}, 1},
 	}
 
 	for _, tt := range tests {

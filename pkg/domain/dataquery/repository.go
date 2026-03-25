@@ -21,9 +21,6 @@ type Repository interface {
 	// GetSeriesPoints retrieves data points for multiple series
 	GetSeriesPoints(ctx context.Context, req *PointsQueryRequest) (map[int64][]DataPoint, error)
 
-	// GetAggregatedPoints retrieves aggregated data points for multiple series
-	GetAggregatedPoints(ctx context.Context, req *AggregationRequest) (map[int64][]AggregatedPoint, error)
-
 	// GetSeriesStatistics retrieves statistics for multiple series
 	GetSeriesStatistics(ctx context.Context, req *StatsRequest) (map[int64]*SeriesStatistics, error)
 }

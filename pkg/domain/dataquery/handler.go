@@ -42,28 +42,20 @@ type SeriesSingleResponse struct {
 
 // SeriesDataDTO is the JSON representation of SeriesData
 type SeriesDataDTO struct {
-	ID               string               `json:"id"`
-	Endpoint         string               `json:"endpoint"`
-	Metric           string               `json:"metric"`
-	Labels           map[string]string    `json:"labels"`
-	LabelsHash       string               `json:"labels_hash"`
-	CreatedAt        time.Time            `json:"created_at"`
-	Points           []DataPointDTO       `json:"points,omitempty"`
-	AggregatedPoints []AggregatedPointDTO `json:"aggregated_points,omitempty"`
-	Statistics       *SeriesStatisticsDTO `json:"statistics,omitempty"`
+	ID         string            `json:"id"`
+	Endpoint   string            `json:"endpoint"`
+	Metric     string            `json:"metric"`
+	Labels     map[string]string `json:"labels"`
+	LabelsHash string            `json:"labels_hash"`
+	CreatedAt  time.Time         `json:"created_at"`
+	Points     []DataPointDTO    `json:"points,omitempty"`
+	Statistics *SeriesStatisticsDTO `json:"statistics,omitempty"`
 }
 
 // DataPointDTO is the JSON representation of DataPoint
 type DataPointDTO struct {
 	Time  time.Time `json:"time"`
 	Value float64   `json:"value"`
-}
-
-// AggregatedPointDTO is the JSON representation of AggregatedPoint
-type AggregatedPointDTO struct {
-	Time  time.Time `json:"time"`
-	Value float64   `json:"value"`
-	Count int       `json:"count"`
 }
 
 // SeriesStatisticsDTO is the JSON representation of SeriesStatistics
@@ -88,18 +80,11 @@ type ErrorDetail struct {
 
 // SeriesQueryRequestBody is the request body for POST /series/query
 type SeriesQueryRequestBody struct {
-	Endpoints   []string           `json:"endpoints"`
-	Metrics     []string           `json:"metrics"`
-	Labels      string             `json:"labels"`
-	Start       *time.Time         `json:"start"`
-	End         *time.Time         `json:"end"`
-	Aggregation *AggregationInput  `json:"aggregation"`
-}
-
-// AggregationInput is the input for aggregation
-type AggregationInput struct {
-	Interval string     `json:"interval"`
-	Function AggFunction `json:"function"`
+	Endpoints []string   `json:"endpoints"`
+	Metrics   []string   `json:"metrics"`
+	Labels    string     `json:"labels"`
+	Start     *time.Time `json:"start"`
+	End       *time.Time `json:"end"`
 }
 
 // Handlers
@@ -256,13 +241,6 @@ func (h *Handler) QuerySeries(ctx context.Context, c *app.RequestContext) {
 		},
 	}
 
-	if req.Aggregation != nil {
-		query.Aggregation = &Aggregation{
-			Interval: req.Aggregation.Interval,
-			Function: req.Aggregation.Function,
-		}
-	}
-
 	series, err := h.service.QuerySeriesMulti(ctx, query)
 	if err != nil {
 		c.JSON(500, ErrorResponse{Error: ErrorDetail{Code: "INTERNAL_ERROR", Message: err.Error()}})
@@ -401,15 +379,14 @@ func (e *TimeParseError) Error() string {
 // toSeriesDataDTO converts SeriesData to SeriesDataDTO
 func toSeriesDataDTO(s *SeriesData) SeriesDataDTO {
 	return SeriesDataDTO{
-		ID:               strconv.FormatInt(s.Meta.ID, 10),
-		Endpoint:         s.Meta.Endpoint,
-		Metric:           s.Meta.Metric,
-		Labels:           s.Meta.Labels,
-		LabelsHash:       s.Meta.LabelsHash,
-		CreatedAt:        s.Meta.CreatedAt,
-		Points:           toDataPointDTOs(s.Points),
-		AggregatedPoints: toAggregatedPointDTOs(s.AggregatedPoints),
-		Statistics:       toSeriesStatisticsDTO(s.Statistics),
+		ID:         strconv.FormatInt(s.Meta.ID, 10),
+		Endpoint:   s.Meta.Endpoint,
+		Metric:     s.Meta.Metric,
+		Labels:     s.Meta.Labels,
+		LabelsHash: s.Meta.LabelsHash,
+		CreatedAt:  s.Meta.CreatedAt,
+		Points:     toDataPointDTOs(s.Points),
+		Statistics: toSeriesStatisticsDTO(s.Statistics),
 	}
 }
 
@@ -435,22 +412,6 @@ func toDataPointDTOs(points []DataPoint) []DataPointDTO {
 		result[i] = DataPointDTO{
 			Time:  p.Time,
 			Value: p.Value,
-		}
-	}
-	return result
-}
-
-// toAggregatedPointDTOs converts a slice of AggregatedPoint to AggregatedPointDTO
-func toAggregatedPointDTOs(points []AggregatedPoint) []AggregatedPointDTO {
-	if len(points) == 0 {
-		return nil
-	}
-	result := make([]AggregatedPointDTO, len(points))
-	for i, p := range points {
-		result[i] = AggregatedPointDTO{
-			Time:  p.Time,
-			Value: p.Value,
-			Count: p.Count,
 		}
 	}
 	return result

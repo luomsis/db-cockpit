@@ -26,13 +26,6 @@ type DataPoint struct {
 	Value float64
 }
 
-// AggregatedPoint represents an aggregated data point over a time bucket
-type AggregatedPoint struct {
-	Time  time.Time
-	Value float64
-	Count int
-}
-
 // SeriesStatistics represents statistical summary of a series
 type SeriesStatistics struct {
 	Min   float64
@@ -44,22 +37,10 @@ type SeriesStatistics struct {
 
 // SeriesData represents a complete series with metadata and data points
 type SeriesData struct {
-	Meta             SeriesMeta
-	Points           []DataPoint
-	AggregatedPoints []AggregatedPoint
-	Statistics       *SeriesStatistics
+	Meta       SeriesMeta
+	Points     []DataPoint
+	Statistics *SeriesStatistics
 }
-
-// AggFunction represents aggregation function types
-type AggFunction string
-
-const (
-	AggAvg   AggFunction = "AVG"
-	AggMin   AggFunction = "MIN"
-	AggMax   AggFunction = "MAX"
-	AggSum   AggFunction = "SUM"
-	AggCount AggFunction = "COUNT"
-)
 
 // SeriesQuery represents a query for series
 type SeriesQuery struct {
@@ -76,13 +57,6 @@ type MultiSeriesQuery struct {
 	Metrics     []string
 	LabelFilter string
 	TimeRange   TimeRange
-	Aggregation *Aggregation
-}
-
-// Aggregation represents aggregation parameters
-type Aggregation struct {
-	Interval string      // "1m", "5m", "1h", "1d"
-	Function AggFunction // AVG, MIN, MAX, SUM, COUNT
 }
 
 // SeriesQueryRequest is the repository request for querying series
@@ -98,14 +72,6 @@ type SeriesQueryRequest struct {
 type PointsQueryRequest struct {
 	SeriesIDs []int64
 	TimeRange TimeRange
-}
-
-// AggregationRequest is the repository request for aggregated points
-type AggregationRequest struct {
-	SeriesIDs []int64
-	TimeRange TimeRange
-	Interval  string
-	Function  string
 }
 
 // StatsRequest is the repository request for series statistics
