@@ -15,6 +15,9 @@ import (
 	"github.com/db-cockpit/pkg/common/config"
 	"github.com/db-cockpit/pkg/common/logger"
 	"github.com/db-cockpit/pkg/domain/dataquery"
+	_ "github.com/db-cockpit/docs" // swagger docs
+	"github.com/hertz-contrib/swagger"
+	swaggerFiles "github.com/swaggo/files"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 )
@@ -23,6 +26,11 @@ var (
 	configPath = flag.String("config", "configs/config.yaml", "Path to configuration file")
 )
 
+// @title Data Query Service API
+// @version 1.0
+// @description RESTful API for querying time series data from TimescaleDB
+// @host localhost:8084
+// @BasePath /api/v1
 func main() {
 	flag.Parse()
 
@@ -103,6 +111,9 @@ func main() {
 		ctx.JSON(http.StatusOK, map[string]string{"status": "ok"})
 	})
 
+	// Swagger UI
+	h.GET("/swagger/*any", swagger.WrapHandler(swaggerFiles.Handler))
+
 	// Start server in goroutine
 	go func() {
 		logger.Info("Data Query Service started", zap.String("addr", addr))
@@ -144,6 +155,7 @@ func printEndpoints(addr string) {
 	fmt.Printf("  GET  http://%s/api/v1/series/:id\n", addr)
 	fmt.Printf("  POST http://%s/api/v1/series/query\n", addr)
 	fmt.Printf("  GET  http://%s/health\n", addr)
+	fmt.Printf("\n📖 Swagger UI: http://%s/swagger/index.html\n", addr)
 	fmt.Println("\n📝 Example REST API Requests:")
 	fmt.Print(`
   # Get all endpoints

@@ -1,0 +1,305 @@
+basePath: /api/v1
+definitions:
+  pkg_domain_dataquery.AggFunction:
+    enum:
+    - AVG
+    - MIN
+    - MAX
+    - SUM
+    - COUNT
+    type: string
+    x-enum-varnames:
+    - AggAvg
+    - AggMin
+    - AggMax
+    - AggSum
+    - AggCount
+  pkg_domain_dataquery.AggregatedPointDTO:
+    properties:
+      count:
+        type: integer
+      time:
+        type: string
+      value:
+        type: number
+    type: object
+  pkg_domain_dataquery.AggregationInput:
+    properties:
+      function:
+        $ref: '#/definitions/pkg_domain_dataquery.AggFunction'
+      interval:
+        type: string
+    type: object
+  pkg_domain_dataquery.DataPointDTO:
+    properties:
+      time:
+        type: string
+      value:
+        type: number
+    type: object
+  pkg_domain_dataquery.EndpointsResponse:
+    properties:
+      data:
+        items:
+          type: string
+        type: array
+    type: object
+  pkg_domain_dataquery.ErrorDetail:
+    properties:
+      code:
+        type: string
+      message:
+        type: string
+    type: object
+  pkg_domain_dataquery.ErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/pkg_domain_dataquery.ErrorDetail'
+    type: object
+  pkg_domain_dataquery.MetricsResponse:
+    properties:
+      data:
+        items:
+          type: string
+        type: array
+    type: object
+  pkg_domain_dataquery.SeriesDataDTO:
+    properties:
+      aggregated_points:
+        items:
+          $ref: '#/definitions/pkg_domain_dataquery.AggregatedPointDTO'
+        type: array
+      created_at:
+        type: string
+      endpoint:
+        type: string
+      id:
+        type: string
+      labels:
+        additionalProperties:
+          type: string
+        type: object
+      labels_hash:
+        type: string
+      metric:
+        type: string
+      points:
+        items:
+          $ref: '#/definitions/pkg_domain_dataquery.DataPointDTO'
+        type: array
+      statistics:
+        $ref: '#/definitions/pkg_domain_dataquery.SeriesStatisticsDTO'
+    type: object
+  pkg_domain_dataquery.SeriesQueryRequestBody:
+    properties:
+      aggregation:
+        $ref: '#/definitions/pkg_domain_dataquery.AggregationInput'
+      end:
+        type: string
+      endpoints:
+        items:
+          type: string
+        type: array
+      labels:
+        type: string
+      metrics:
+        items:
+          type: string
+        type: array
+      start:
+        type: string
+    type: object
+  pkg_domain_dataquery.SeriesResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/pkg_domain_dataquery.SeriesDataDTO'
+        type: array
+    type: object
+  pkg_domain_dataquery.SeriesSingleResponse:
+    properties:
+      data:
+        $ref: '#/definitions/pkg_domain_dataquery.SeriesDataDTO'
+    type: object
+  pkg_domain_dataquery.SeriesStatisticsDTO:
+    properties:
+      avg:
+        type: number
+      count:
+        type: integer
+      max:
+        type: number
+      min:
+        type: number
+      sum:
+        type: number
+    type: object
+host: localhost:8084
+info:
+  contact: {}
+  description: RESTful API for querying time series data from TimescaleDB
+  title: Data Query Service API
+  version: "1.0"
+paths:
+  /endpoints:
+    get:
+      description: Get all distinct endpoints from the time series database
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pkg_domain_dataquery.EndpointsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+      summary: Get all endpoints
+      tags:
+      - endpoints
+  /metrics:
+    get:
+      description: Get all distinct metrics for a specific endpoint
+      parameters:
+      - description: Endpoint name
+        in: query
+        name: endpoint
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pkg_domain_dataquery.MetricsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+      summary: Get metrics for an endpoint
+      tags:
+      - metrics
+  /series:
+    get:
+      description: Query time series data with optional filters
+      parameters:
+      - description: Endpoint filter
+        in: query
+        name: endpoint
+        type: string
+      - description: Metric filter
+        in: query
+        name: metric
+        type: string
+      - description: Label filter expression
+        in: query
+        name: label_filter
+        type: string
+      - description: Start time (RFC3339 or Unix timestamp)
+        in: query
+        name: start
+        required: true
+        type: string
+      - description: End time (RFC3339 or Unix timestamp)
+        in: query
+        name: end
+        required: true
+        type: string
+      - description: Maximum number of results
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pkg_domain_dataquery.SeriesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+      summary: Query series data
+      tags:
+      - series
+  /series/{id}:
+    get:
+      description: Get a single time series by its ID with optional time range
+      parameters:
+      - description: Series ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Start time (RFC3339 or Unix timestamp, default: 1 hour ago)'
+        in: query
+        name: start
+        type: string
+      - description: 'End time (RFC3339 or Unix timestamp, default: now)'
+        in: query
+        name: end
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pkg_domain_dataquery.SeriesSingleResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+      summary: Get series by ID
+      tags:
+      - series
+  /series/query:
+    post:
+      consumes:
+      - application/json
+      description: Query multiple time series with complex filters and optional aggregation
+      parameters:
+      - description: Query parameters
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/pkg_domain_dataquery.SeriesQueryRequestBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pkg_domain_dataquery.SeriesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+      summary: Query multiple series
+      tags:
+      - series
+swagger: "2.0"

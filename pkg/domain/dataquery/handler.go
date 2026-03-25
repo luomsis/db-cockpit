@@ -105,6 +105,13 @@ type AggregationInput struct {
 // Handlers
 
 // GetEndpoints handles GET /endpoints requests
+// @Summary Get all endpoints
+// @Description Get all distinct endpoints from the time series database
+// @Tags endpoints
+// @Produce json
+// @Success 200 {object} EndpointsResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /endpoints [get]
 func (h *Handler) GetEndpoints(ctx context.Context, c *app.RequestContext) {
 	endpoints, err := h.service.GetEndpoints(ctx)
 	if err != nil {
@@ -116,6 +123,15 @@ func (h *Handler) GetEndpoints(ctx context.Context, c *app.RequestContext) {
 }
 
 // GetMetrics handles GET /metrics requests with endpoint as query parameter
+// @Summary Get metrics for an endpoint
+// @Description Get all distinct metrics for a specific endpoint
+// @Tags metrics
+// @Param endpoint query string true "Endpoint name"
+// @Produce json
+// @Success 200 {object} MetricsResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /metrics [get]
 func (h *Handler) GetMetrics(ctx context.Context, c *app.RequestContext) {
 	endpoint := c.Query("endpoint")
 	if endpoint == "" {
@@ -133,6 +149,20 @@ func (h *Handler) GetMetrics(ctx context.Context, c *app.RequestContext) {
 }
 
 // GetSeries handles GET /series requests with query parameters
+// @Summary Query series data
+// @Description Query time series data with optional filters
+// @Tags series
+// @Param endpoint query string false "Endpoint filter"
+// @Param metric query string false "Metric filter"
+// @Param label_filter query string false "Label filter expression"
+// @Param start query string true "Start time (RFC3339 or Unix timestamp)"
+// @Param end query string true "End time (RFC3339 or Unix timestamp)"
+// @Param limit query int false "Maximum number of results"
+// @Produce json
+// @Success 200 {object} SeriesResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /series [get]
 func (h *Handler) GetSeries(ctx context.Context, c *app.RequestContext) {
 	query, err := h.parseSeriesQuery(c)
 	if err != nil {
@@ -150,6 +180,18 @@ func (h *Handler) GetSeries(ctx context.Context, c *app.RequestContext) {
 }
 
 // GetSeriesByID handles GET /series/:id requests
+// @Summary Get series by ID
+// @Description Get a single time series by its ID with optional time range
+// @Tags series
+// @Param id path string true "Series ID"
+// @Param start query string false "Start time (RFC3339 or Unix timestamp, default: 1 hour ago)"
+// @Param end query string false "End time (RFC3339 or Unix timestamp, default: now)"
+// @Produce json
+// @Success 200 {object} SeriesSingleResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /series/{id} [get]
 func (h *Handler) GetSeriesByID(ctx context.Context, c *app.RequestContext) {
 	idStr := c.Param("id")
 	if idStr == "" {
@@ -181,6 +223,16 @@ func (h *Handler) GetSeriesByID(ctx context.Context, c *app.RequestContext) {
 }
 
 // QuerySeries handles POST /series/query requests for complex queries
+// @Summary Query multiple series
+// @Description Query multiple time series with complex filters and optional aggregation
+// @Tags series
+// @Accept json
+// @Produce json
+// @Param request body SeriesQueryRequestBody true "Query parameters"
+// @Success 200 {object} SeriesResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /series/query [post]
 func (h *Handler) QuerySeries(ctx context.Context, c *app.RequestContext) {
 	var req SeriesQueryRequestBody
 	if err := c.BindJSON(&req); err != nil {

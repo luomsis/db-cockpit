@@ -1,0 +1,462 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "RESTful API for querying time series data from TimescaleDB",
+        "title": "Data Query Service API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "host": "localhost:8084",
+    "basePath": "/api/v1",
+    "paths": {
+        "/endpoints": {
+            "get": {
+                "description": "Get all distinct endpoints from the time series database",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "endpoints"
+                ],
+                "summary": "Get all endpoints",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_domain_dataquery.EndpointsResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/metrics": {
+            "get": {
+                "description": "Get all distinct metrics for a specific endpoint",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "metrics"
+                ],
+                "summary": "Get metrics for an endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Endpoint name",
+                        "name": "endpoint",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_domain_dataquery.MetricsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/series": {
+            "get": {
+                "description": "Query time series data with optional filters",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "series"
+                ],
+                "summary": "Query series data",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Endpoint filter",
+                        "name": "endpoint",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Metric filter",
+                        "name": "metric",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Label filter expression",
+                        "name": "label_filter",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start time (RFC3339 or Unix timestamp)",
+                        "name": "start",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (RFC3339 or Unix timestamp)",
+                        "name": "end",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum number of results",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_domain_dataquery.SeriesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/series/query": {
+            "post": {
+                "description": "Query multiple time series with complex filters and optional aggregation",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "series"
+                ],
+                "summary": "Query multiple series",
+                "parameters": [
+                    {
+                        "description": "Query parameters",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/pkg_domain_dataquery.SeriesQueryRequestBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_domain_dataquery.SeriesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/series/{id}": {
+            "get": {
+                "description": "Get a single time series by its ID with optional time range",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "series"
+                ],
+                "summary": "Get series by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Series ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start time (RFC3339 or Unix timestamp, default: 1 hour ago)",
+                        "name": "start",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (RFC3339 or Unix timestamp, default: now)",
+                        "name": "end",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_domain_dataquery.SeriesSingleResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "pkg_domain_dataquery.AggFunction": {
+            "type": "string",
+            "enum": [
+                "AVG",
+                "MIN",
+                "MAX",
+                "SUM",
+                "COUNT"
+            ],
+            "x-enum-varnames": [
+                "AggAvg",
+                "AggMin",
+                "AggMax",
+                "AggSum",
+                "AggCount"
+            ]
+        },
+        "pkg_domain_dataquery.AggregatedPointDTO": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "time": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            }
+        },
+        "pkg_domain_dataquery.AggregationInput": {
+            "type": "object",
+            "properties": {
+                "function": {
+                    "$ref": "#/definitions/pkg_domain_dataquery.AggFunction"
+                },
+                "interval": {
+                    "type": "string"
+                }
+            }
+        },
+        "pkg_domain_dataquery.DataPointDTO": {
+            "type": "object",
+            "properties": {
+                "time": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            }
+        },
+        "pkg_domain_dataquery.EndpointsResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "pkg_domain_dataquery.ErrorDetail": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "pkg_domain_dataquery.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/pkg_domain_dataquery.ErrorDetail"
+                }
+            }
+        },
+        "pkg_domain_dataquery.MetricsResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "pkg_domain_dataquery.SeriesDataDTO": {
+            "type": "object",
+            "properties": {
+                "aggregated_points": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/pkg_domain_dataquery.AggregatedPointDTO"
+                    }
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "endpoint": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "labels": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "labels_hash": {
+                    "type": "string"
+                },
+                "metric": {
+                    "type": "string"
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/pkg_domain_dataquery.DataPointDTO"
+                    }
+                },
+                "statistics": {
+                    "$ref": "#/definitions/pkg_domain_dataquery.SeriesStatisticsDTO"
+                }
+            }
+        },
+        "pkg_domain_dataquery.SeriesQueryRequestBody": {
+            "type": "object",
+            "properties": {
+                "aggregation": {
+                    "$ref": "#/definitions/pkg_domain_dataquery.AggregationInput"
+                },
+                "end": {
+                    "type": "string"
+                },
+                "endpoints": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "labels": {
+                    "type": "string"
+                },
+                "metrics": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "start": {
+                    "type": "string"
+                }
+            }
+        },
+        "pkg_domain_dataquery.SeriesResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/pkg_domain_dataquery.SeriesDataDTO"
+                    }
+                }
+            }
+        },
+        "pkg_domain_dataquery.SeriesSingleResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/pkg_domain_dataquery.SeriesDataDTO"
+                }
+            }
+        },
+        "pkg_domain_dataquery.SeriesStatisticsDTO": {
+            "type": "object",
+            "properties": {
+                "avg": {
+                    "type": "number"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "max": {
+                    "type": "number"
+                },
+                "min": {
+                    "type": "number"
+                },
+                "sum": {
+                    "type": "number"
+                }
+            }
+        }
+    }
+}
