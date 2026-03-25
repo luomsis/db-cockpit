@@ -1,8 +1,14 @@
 #!/bin/bash
 
-# Generate Go code from Protobuf files
+# Database Intelligent Cockpit - Protobuf Code Generator
+# Usage: ./scripts/build/generate_proto.sh
+# Note: Run from project root directory
 
 set -e
+
+# Project root directory
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "${PROJECT_ROOT}"
 
 echo "Generating Protobuf code..."
 

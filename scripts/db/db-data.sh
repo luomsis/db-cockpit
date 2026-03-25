@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Database Intelligent Cockpit - Data Management Script
-# Usage: ./scripts/db-data.sh [clear|seed|reset|status]
+# Usage: ./scripts/db/db-data.sh [clear|seed|reset|status]
 
 set -e
 
@@ -21,7 +21,7 @@ DB_NAME="${DB_NAME:-postgres}"
 DATABASE_URL="postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=disable"
 
 # Project root directory
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Logging functions
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
@@ -117,7 +117,7 @@ seed_data() {
     cd "${PROJECT_ROOT}"
 
     # Run the Go seed script
-    DATABASE_URL="${DATABASE_URL}" go run scripts/insert_test_data.go
+    DATABASE_URL="${DATABASE_URL}" go run scripts/db/insert_test_data.go
 
     log_success "Test data seeded!"
 }
@@ -162,7 +162,7 @@ ensure_tables() {
 
     # Use Go script to ensure tables (it has EnsureTables function)
     cd "${PROJECT_ROOT}"
-    DATABASE_URL="${DATABASE_URL}" go run -exec 'echo' scripts/insert_test_data.go 2>/dev/null || true
+    DATABASE_URL="${DATABASE_URL}" go run -exec 'echo' scripts/db/insert_test_data.go 2>/dev/null || true
 
     # Create tables directly via SQL
     exec_sql "

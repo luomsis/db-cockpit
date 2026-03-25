@@ -126,13 +126,15 @@ db-cockpit/
 │   └── common/            # Common utilities
 ├── configs/               # Configuration files
 ├── scripts/               # Build and test scripts
-│   ├── services.sh       # Service management (start/stop/status)
-│   ├── db-data.sh        # Database data management (seed/clear/reset)
-│   ├── build.sh          # Build all services
-│   ├── generate_proto.sh # Generate protobuf code
-│   ├── insert_test_data.go # Test data insertion script
-│   ├── run_integration_tests.sh # Run integration tests
-│   └── test_gateway_curl.sh     # Manual curl-based testing
+│   ├── build/             # Build and code generation
+│   │   ├── build.sh       # Build all services
+│   │   └── generate_proto.sh # Generate protobuf code
+│   ├── db/                # Database management
+│   │   ├── db-data.sh     # Database data management (seed/clear/reset)
+│   │   ├── init-extensions.sql # Initialize TimescaleDB/pgvector/PGMQ
+│   │   └── insert_test_data.go # Test data insertion script
+│   └── dev/               # Development utilities
+│       └── services.sh    # Service management (start/stop/status)
 ├── test/                  # Tests
 │   └── integration/       # Integration tests
 │       ├── query_test.go  # Data query tests
@@ -202,37 +204,37 @@ The project includes convenient scripts for managing all services:
 ```bash
 # Start all services (Data Query, Gateway, Frontend)
 # Note: Ensure PostgreSQL/TimescaleDB is running first
-./scripts/services.sh start
+./scripts/dev/services.sh start
 
 # Stop all services
-./scripts/services.sh stop
+./scripts/dev/services.sh stop
 
 # Restart all services
-./scripts/services.sh restart
+./scripts/dev/services.sh restart
 
 # Check service status
-./scripts/services.sh status
+./scripts/dev/services.sh status
 
 # View logs for a specific service
-./scripts/services.sh logs gateway
-./scripts/services.sh logs dataquery
-./scripts/services.sh logs frontend
+./scripts/dev/services.sh logs gateway
+./scripts/dev/services.sh logs dataquery
+./scripts/dev/services.sh logs frontend
 ```
 
 #### Manage Individual Services
 
 ```bash
 # Data Query Service
-./scripts/services.sh start-dataquery
-./scripts/services.sh stop-dataquery
+./scripts/dev/services.sh start-dataquery
+./scripts/dev/services.sh stop-dataquery
 
 # Gateway Service
-./scripts/services.sh start-gateway
-./scripts/services.sh stop-gateway
+./scripts/dev/services.sh start-gateway
+./scripts/dev/services.sh stop-gateway
 
 # Frontend (Next.js)
-./scripts/services.sh start-frontend
-./scripts/services.sh stop-frontend
+./scripts/dev/services.sh start-frontend
+./scripts/dev/services.sh stop-frontend
 ```
 
 > **Note**: PostgreSQL/TimescaleDB should be running before starting services. Use `docker-compose up -d` or your preferred method to start the database.
@@ -241,19 +243,19 @@ The project includes convenient scripts for managing all services:
 
 ```bash
 # Check database data status
-./scripts/db-data.sh status
+./scripts/db/db-data.sh status
 
 # Insert test data
-./scripts/db-data.sh seed
+./scripts/db/db-data.sh seed
 
 # Clear all data
-./scripts/db-data.sh clear
+./scripts/db/db-data.sh clear
 
 # Reset data (clear + seed)
-./scripts/db-data.sh reset
+./scripts/db/db-data.sh reset
 
 # Quick test GraphQL endpoints
-./scripts/db-data.sh test
+./scripts/db/db-data.sh test
 ```
 
 ### Service Endpoints
@@ -292,8 +294,8 @@ go run cmd/taskengine/main.go
 ### Generate Protobuf Code
 
 ```bash
-chmod +x scripts/generate_proto.sh
-./scripts/generate_proto.sh
+chmod +x scripts/build/generate_proto.sh
+./scripts/build/generate_proto.sh
 ```
 
 ### Insert Test Data
@@ -302,10 +304,10 @@ Insert sample time-series data for testing:
 
 ```bash
 # With default database URL (postgres://postgres:postgres@localhost:5432/dbcockpit)
-go run scripts/insert_test_data.go
+go run scripts/db/insert_test_data.go
 
 # With custom database URL
-DATABASE_URL="postgres://user:pass@host:port/db" go run scripts/insert_test_data.go
+DATABASE_URL="postgres://user:pass@host:port/db" go run scripts/db/insert_test_data.go
 ```
 
 This inserts:
@@ -539,16 +541,6 @@ go run cmd/gateway/main.go &
 
 # Run integration tests
 go test -v ./test/integration/...
-
-# Or use the automated script
-./scripts/run_integration_tests.sh
-```
-
-### Manual Testing with curl
-
-```bash
-# Run the curl-based manual test script
-./scripts/test_gateway_curl.sh
 ```
 
 ### Test Coverage
@@ -559,11 +551,43 @@ go test -v ./test/integration/...
 | pkg/api/middleware | Auth, CORS, RequestID, Audit middleware tests |
 | pkg/api/router | Route registration and middleware chain tests |
 | pkg/domain/dataquery | Service, repository, label parser tests |
-| test/integration | End-to-end integration tests with curl |
+| test/integration | End-to-end integration tests |
 
 ## Configuration
 
 See `configs/config.yaml` for all configuration options.
+
+## Documentation
+
+### Architecture & Design
+
+| Document | Description |
+|----------|-------------|
+| [Architecture Diagram Prompt](docs/architecture-diagram-prompt.md) | Prompts for generating system architecture diagrams |
+| [GraphQL API Guide](docs/graphql-api-guide.md) | Comprehensive GraphQL API usage guide |
+
+### Specifications
+
+| Document | Date | Description |
+|----------|------|-------------|
+| [DataQuery GraphQL Design](docs/superpowers/specs/2024-03-20-dataquery-graphql-design.md) | 2024-03-20 | GraphQL query interface design |
+| [Monitoring Dashboard Design](docs/superpowers/specs/2026-03-22-monitoring-dashboard-design.md) | 2026-03-22 | Frontend monitoring dashboard design |
+| [DataQuery REST API Design](docs/superpowers/specs/2026-03-25-dataquery-rest-api-design.md) | 2026-03-25 | REST API design for DataQuery service |
+
+### Implementation Plans
+
+| Document | Date | Description |
+|----------|------|-------------|
+| [Monitoring Dashboard Implementation](docs/superpowers/plans/2026-03-22-monitoring-dashboard.md) | 2026-03-22 | Step-by-step dashboard implementation |
+| [DataQuery REST API Implementation](docs/superpowers/plans/2026-03-25-dataquery-rest-api.md) | 2026-03-25 | REST API migration implementation |
+
+### API Reference
+
+| Document | Description |
+|----------|-------------|
+| [Swagger UI](http://localhost:8084/swagger/index.html) | Interactive API documentation (when service running) |
+| [swagger.json](docs/swagger.json) | OpenAPI 2.0 specification (JSON) |
+| [swagger.yaml](docs/swagger.yaml) | OpenAPI 2.0 specification (YAML) |
 
 ## License
 

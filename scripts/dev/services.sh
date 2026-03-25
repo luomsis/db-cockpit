@@ -1,13 +1,13 @@
 #!/bin/bash
 
 # Database Intelligent Cockpit - Services Management Script
-# Usage: ./scripts/services.sh [start|stop|restart|status|logs] [service]
+# Usage: ./scripts/dev/services.sh [start|stop|restart|status|logs] [service]
 # Examples:
-#   ./scripts/services.sh start              # Start all services
-#   ./scripts/services.sh start gateway      # Start only gateway
-#   ./scripts/services.sh stop               # Stop all services
-#   ./scripts/services.sh restart gateway    # Restart gateway
-#   ./scripts/services.sh status             # Show status of all services
+#   ./scripts/dev/services.sh start              # Start all services
+#   ./scripts/dev/services.sh start gateway      # Start only gateway
+#   ./scripts/dev/services.sh stop               # Stop all services
+#   ./scripts/dev/services.sh restart gateway    # Restart gateway
+#   ./scripts/dev/services.sh status             # Show status of all services
 
 set -e
 
@@ -30,7 +30,7 @@ FRONTEND_PORT=3000
 GO_SERVICES="gateway dataquery collector agent taskengine"
 
 # Project root directory
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LOG_DIR="/tmp/db-cockpit"
 PID_DIR="${PROJECT_ROOT}/.pids"
 

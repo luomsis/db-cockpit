@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # Database Intelligent Cockpit - Build Script
-# Usage: ./scripts/build.sh [all|gateway|collector|agent|taskengine|dataquery]
+# Usage: ./scripts/build/build.sh [all|gateway|collector|agent|taskengine|dataquery]
 # Examples:
-#   ./scripts/build.sh          # Build all services
-#   ./scripts/build.sh all      # Build all services
-#   ./scripts/build.sh gateway  # Build only gateway
+#   ./scripts/build/build.sh          # Build all services
+#   ./scripts/build/build.sh all      # Build all services
+#   ./scripts/build/build.sh gateway  # Build only gateway
 
 set -e
 
@@ -17,7 +17,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Project root directory
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${PROJECT_ROOT}"
 
 # Output directory
