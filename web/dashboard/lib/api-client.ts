@@ -38,19 +38,15 @@ export interface SeriesResponse {
 }
 
 export interface SeriesData {
-  meta: SeriesMeta
-  points: DataPoint[]
-  aggregated_points?: AggregatedPoint[]
-  statistics?: SeriesStatistics
-}
-
-export interface SeriesMeta {
   id: string
   endpoint: string
   metric: string
   labels: Record<string, string>
   labels_hash: string
   created_at: string
+  points: DataPoint[]
+  aggregated_points?: AggregatedPoint[]
+  statistics?: SeriesStatistics
 }
 
 export interface DataPoint {

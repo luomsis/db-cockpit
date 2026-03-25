@@ -3,6 +3,8 @@ export interface SeriesMeta {
   endpoint: string
   metric: string
   labels: Record<string, string>
+  labels_hash: string
+  created_at: string
 }
 
 export interface DataPoint {
@@ -10,9 +12,23 @@ export interface DataPoint {
   value: number
 }
 
+// Series data from REST API (flat structure)
 export interface Series {
-  meta: SeriesMeta
+  id: string
+  endpoint: string
+  metric: string
+  labels: Record<string, string>
+  labels_hash: string
+  created_at: string
   points: DataPoint[]
+  aggregated_points?: AggregatedPoint[]
+  statistics?: Statistics
+}
+
+export interface AggregatedPoint {
+  time: string
+  value: number
+  count: number
 }
 
 export interface Statistics {
