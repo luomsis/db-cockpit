@@ -243,8 +243,8 @@ show_status() {
 
     echo ""
     echo "Endpoints:"
-    echo "  Gateway:       http://localhost:${GATEWAY_PORT}"
-    echo "  Data Query:    http://localhost:${DATAQUERY_PORT}/graphql"
+    echo "  Gateway:       http://localhost:${GATEWAY_PORT}/api/v1"
+    echo "  Data Query:    http://localhost:${DATAQUERY_PORT}/api/v1"
     echo "  Frontend:      http://localhost:${FRONTEND_PORT}"
     echo ""
     echo "Log files: ${LOG_DIR}/"
