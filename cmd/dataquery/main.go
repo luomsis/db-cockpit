@@ -12,7 +12,6 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
-	"github.com/db-cockpit/pkg/api/middleware"
 	"github.com/db-cockpit/pkg/common/config"
 	"github.com/db-cockpit/pkg/common/logger"
 	"github.com/db-cockpit/pkg/domain/dataquery"
@@ -85,9 +84,6 @@ func main() {
 		server.WithHostPorts(addr),
 		server.WithDisablePrintRoute(false),
 	)
-
-	// Add CORS middleware for cross-origin requests
-	h.Use(middleware.CORSMiddleware([]string{"*"}))
 
 	// Add request logging middleware
 	h.Use(func(ctx context.Context, c *app.RequestContext) {
