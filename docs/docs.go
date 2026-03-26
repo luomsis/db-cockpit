@@ -29,13 +29,60 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/pkg_domain_dataquery.EndpointsResponse"
+                            "$ref": "#/definitions/dataquery.EndpointsResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                            "$ref": "#/definitions/dataquery.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/instances/{endpoint}": {
+            "get": {
+                "description": "Get database instance metadata (db_type, entity_name, instance_vip, instance_port, etc.) by endpoint",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "instances"
+                ],
+                "summary": "Get instance metadata by endpoint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Instance endpoint",
+                        "name": "endpoint",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dataquery.InstanceMetaResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dataquery.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dataquery.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dataquery.ErrorResponse"
                         }
                     }
                 }
@@ -64,19 +111,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/pkg_domain_dataquery.MetricsResponse"
+                            "$ref": "#/definitions/dataquery.MetricsResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                            "$ref": "#/definitions/dataquery.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                            "$ref": "#/definitions/dataquery.ErrorResponse"
                         }
                     }
                 }
@@ -136,19 +183,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/pkg_domain_dataquery.SeriesResponse"
+                            "$ref": "#/definitions/dataquery.SeriesResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                            "$ref": "#/definitions/dataquery.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                            "$ref": "#/definitions/dataquery.ErrorResponse"
                         }
                     }
                 }
@@ -174,7 +221,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/pkg_domain_dataquery.SeriesQueryRequestBody"
+                            "$ref": "#/definitions/dataquery.SeriesQueryRequestBody"
                         }
                     }
                 ],
@@ -182,19 +229,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/pkg_domain_dataquery.SeriesResponse"
+                            "$ref": "#/definitions/dataquery.SeriesResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                            "$ref": "#/definitions/dataquery.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                            "$ref": "#/definitions/dataquery.ErrorResponse"
                         }
                     }
                 }
@@ -235,25 +282,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/pkg_domain_dataquery.SeriesSingleResponse"
+                            "$ref": "#/definitions/dataquery.SeriesSingleResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                            "$ref": "#/definitions/dataquery.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                            "$ref": "#/definitions/dataquery.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/pkg_domain_dataquery.ErrorResponse"
+                            "$ref": "#/definitions/dataquery.ErrorResponse"
                         }
                     }
                 }
@@ -261,7 +308,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "pkg_domain_dataquery.DataPointDTO": {
+        "dataquery.DataPointDTO": {
             "type": "object",
             "properties": {
                 "time": {
@@ -272,7 +319,7 @@ const docTemplate = `{
                 }
             }
         },
-        "pkg_domain_dataquery.EndpointsResponse": {
+        "dataquery.EndpointsResponse": {
             "type": "object",
             "properties": {
                 "data": {
@@ -283,7 +330,7 @@ const docTemplate = `{
                 }
             }
         },
-        "pkg_domain_dataquery.ErrorDetail": {
+        "dataquery.ErrorDetail": {
             "type": "object",
             "properties": {
                 "code": {
@@ -294,15 +341,169 @@ const docTemplate = `{
                 }
             }
         },
-        "pkg_domain_dataquery.ErrorResponse": {
+        "dataquery.ErrorResponse": {
             "type": "object",
             "properties": {
                 "error": {
-                    "$ref": "#/definitions/pkg_domain_dataquery.ErrorDetail"
+                    "$ref": "#/definitions/dataquery.ErrorDetail"
                 }
             }
         },
-        "pkg_domain_dataquery.MetricsResponse": {
+        "dataquery.InstanceMeta": {
+            "type": "object",
+            "properties": {
+                "alert_subscriber": {
+                    "type": "string"
+                },
+                "attach_db": {
+                    "type": "string"
+                },
+                "backup_method": {
+                    "type": "string"
+                },
+                "business_owner": {
+                    "type": "string"
+                },
+                "ccm_name": {
+                    "type": "string"
+                },
+                "character_set": {
+                    "type": "string"
+                },
+                "chinese_desc": {
+                    "type": "string"
+                },
+                "created_date": {
+                    "type": "string"
+                },
+                "db_type": {
+                    "type": "string"
+                },
+                "default_role": {
+                    "type": "string"
+                },
+                "entity_name": {
+                    "type": "string"
+                },
+                "environment": {
+                    "type": "string"
+                },
+                "failover_type": {
+                    "type": "string"
+                },
+                "ha_type": {
+                    "type": "string"
+                },
+                "host_environment1": {
+                    "type": "string"
+                },
+                "host_environment2": {
+                    "type": "string"
+                },
+                "host_infra_type1": {
+                    "type": "string"
+                },
+                "host_infra_type2": {
+                    "type": "string"
+                },
+                "host_ip1": {
+                    "type": "string"
+                },
+                "host_ip2": {
+                    "type": "string"
+                },
+                "host_name2": {
+                    "type": "string"
+                },
+                "host_namel": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "infra_type": {
+                    "type": "string"
+                },
+                "ins_created_date": {
+                    "type": "string"
+                },
+                "ins_updated_date": {
+                    "type": "string"
+                },
+                "ins_uuid": {
+                    "type": "string"
+                },
+                "instance_endpoint": {
+                    "type": "string"
+                },
+                "instance_name": {
+                    "type": "string"
+                },
+                "instance_port": {
+                    "type": "integer"
+                },
+                "instance_vip": {
+                    "type": "string"
+                },
+                "is_created_by_cloud": {
+                    "type": "string"
+                },
+                "le_name": {
+                    "type": "string"
+                },
+                "opr_dba": {
+                    "type": "string"
+                },
+                "opr_dba_ii": {
+                    "type": "string"
+                },
+                "org_code": {
+                    "type": "string"
+                },
+                "os_name": {
+                    "type": "string"
+                },
+                "req_cpu": {
+                    "type": "number"
+                },
+                "req_memory_gb": {
+                    "type": "number"
+                },
+                "req_storage_gb": {
+                    "type": "number"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "service_user": {
+                    "type": "string"
+                },
+                "source_sys": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "subsys_code": {
+                    "type": "string"
+                },
+                "user_name": {
+                    "type": "string"
+                },
+                "version_detail": {
+                    "type": "string"
+                }
+            }
+        },
+        "dataquery.InstanceMetaResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/dataquery.InstanceMeta"
+                }
+            }
+        },
+        "dataquery.MetricsResponse": {
             "type": "object",
             "properties": {
                 "data": {
@@ -313,7 +514,7 @@ const docTemplate = `{
                 }
             }
         },
-        "pkg_domain_dataquery.SeriesDataDTO": {
+        "dataquery.SeriesDataDTO": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -340,15 +541,15 @@ const docTemplate = `{
                 "points": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/pkg_domain_dataquery.DataPointDTO"
+                        "$ref": "#/definitions/dataquery.DataPointDTO"
                     }
                 },
                 "statistics": {
-                    "$ref": "#/definitions/pkg_domain_dataquery.SeriesStatisticsDTO"
+                    "$ref": "#/definitions/dataquery.SeriesStatisticsDTO"
                 }
             }
         },
-        "pkg_domain_dataquery.SeriesQueryRequestBody": {
+        "dataquery.SeriesQueryRequestBody": {
             "type": "object",
             "properties": {
                 "end": {
@@ -374,26 +575,26 @@ const docTemplate = `{
                 }
             }
         },
-        "pkg_domain_dataquery.SeriesResponse": {
+        "dataquery.SeriesResponse": {
             "type": "object",
             "properties": {
                 "data": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/pkg_domain_dataquery.SeriesDataDTO"
+                        "$ref": "#/definitions/dataquery.SeriesDataDTO"
                     }
                 }
             }
         },
-        "pkg_domain_dataquery.SeriesSingleResponse": {
+        "dataquery.SeriesSingleResponse": {
             "type": "object",
             "properties": {
                 "data": {
-                    "$ref": "#/definitions/pkg_domain_dataquery.SeriesDataDTO"
+                    "$ref": "#/definitions/dataquery.SeriesDataDTO"
                 }
             }
         },
-        "pkg_domain_dataquery.SeriesStatisticsDTO": {
+        "dataquery.SeriesStatisticsDTO": {
             "type": "object",
             "properties": {
                 "avg": {

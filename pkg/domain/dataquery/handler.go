@@ -89,6 +89,11 @@ type SeriesQueryRequestBody struct {
 	End       *time.Time `json:"end"`
 }
 
+// InstanceMetaResponse is the response for instance metadata
+type InstanceMetaResponse struct {
+	Data *InstanceMeta `json:"data"`
+}
+
 // Handlers
 
 // GetEndpoints handles GET /endpoints requests
@@ -287,6 +292,44 @@ func (h *Handler) QuerySeries(ctx context.Context, c *app.RequestContext) {
 
 	logger.Debug("QuerySeries success", zap.Int("count", len(series)))
 	c.JSON(200, SeriesResponse{Data: toSeriesDataDTOs(series)})
+}
+
+// GetInstance handles GET /instances/:endpoint requests
+// @Summary Get instance metadata by endpoint
+// @Description Get database instance metadata (db_type, entity_name, instance_vip, instance_port, etc.) by endpoint
+// @Tags instances
+// @Param endpoint path string true "Instance endpoint"
+// @Produce json
+// @Success 200 {object} InstanceMetaResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /instances/{endpoint} [get]
+func (h *Handler) GetInstance(ctx context.Context, c *app.RequestContext) {
+	endpoint := c.Param("endpoint")
+	if endpoint == "" {
+		logger.Warn("GetInstance missing endpoint parameter")
+		c.JSON(400, ErrorResponse{Error: ErrorDetail{Code: "INVALID_PARAMETER", Message: "endpoint parameter is required"}})
+		return
+	}
+
+	logger.Debug("GetInstance called", zap.String("endpoint", endpoint))
+
+	instance, err := h.service.GetInstanceByEndpoint(ctx, endpoint)
+	if err != nil {
+		logger.Error("GetInstance failed", zap.String("endpoint", endpoint), zap.Error(err))
+		c.JSON(500, ErrorResponse{Error: ErrorDetail{Code: "INTERNAL_ERROR", Message: err.Error()}})
+		return
+	}
+
+	if instance == nil {
+		logger.Debug("GetInstance not found", zap.String("endpoint", endpoint))
+		c.JSON(404, ErrorResponse{Error: ErrorDetail{Code: "NOT_FOUND", Message: "instance not found"}})
+		return
+	}
+
+	logger.Debug("GetInstance success", zap.String("endpoint", endpoint), zap.String("db_type", instance.DbType))
+	c.JSON(200, InstanceMetaResponse{Data: instance})
 }
 
 // Helper functions

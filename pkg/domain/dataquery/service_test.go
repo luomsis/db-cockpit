@@ -108,6 +108,13 @@ func (m *mockRepository) GetSeriesStatistics(ctx context.Context, req *StatsRequ
 	return result, nil
 }
 
+func (m *mockRepository) GetInstanceByEndpoint(ctx context.Context, endpoint string) (*InstanceMeta, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return nil, nil
+}
+
 // Service Tests
 
 func TestServiceName(t *testing.T) {

@@ -55,6 +55,12 @@ func (m *mockDataQueryService) GetSeriesByID(ctx context.Context, id int64, time
 	}
 	return nil, nil
 }
+func (m *mockDataQueryService) GetInstanceByEndpoint(ctx context.Context, endpoint string) (*InstanceMeta, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return nil, nil
+}
 
 func createTestRequestContext(body string) (context.Context, *app.RequestContext) {
 	ctx := context.Background()

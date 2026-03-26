@@ -26,6 +26,9 @@ type DataQueryService interface {
 
 	// GetSeriesByID retrieves a single series by ID with data points
 	GetSeriesByID(ctx context.Context, id int64, timeRange *TimeRange) (*SeriesData, error)
+
+	// GetInstanceByEndpoint retrieves instance metadata by endpoint
+	GetInstanceByEndpoint(ctx context.Context, endpoint string) (*InstanceMeta, error)
 }
 
 // Service implements DataQueryService
@@ -220,4 +223,9 @@ func (s *Service) GetSeriesByID(ctx context.Context, id int64, timeRange *TimeRa
 	}
 
 	return result, nil
+}
+
+// GetInstanceByEndpoint retrieves instance metadata by endpoint
+func (s *Service) GetInstanceByEndpoint(ctx context.Context, endpoint string) (*InstanceMeta, error) {
+	return s.repo.GetInstanceByEndpoint(ctx, endpoint)
 }

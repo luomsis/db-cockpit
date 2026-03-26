@@ -1,39 +1,141 @@
 basePath: /api/v1
 definitions:
-  pkg_domain_dataquery.DataPointDTO:
+  dataquery.DataPointDTO:
     properties:
       time:
         type: string
       value:
         type: number
     type: object
-  pkg_domain_dataquery.EndpointsResponse:
+  dataquery.EndpointsResponse:
     properties:
       data:
         items:
           type: string
         type: array
     type: object
-  pkg_domain_dataquery.ErrorDetail:
+  dataquery.ErrorDetail:
     properties:
       code:
         type: string
       message:
         type: string
     type: object
-  pkg_domain_dataquery.ErrorResponse:
+  dataquery.ErrorResponse:
     properties:
       error:
-        $ref: '#/definitions/pkg_domain_dataquery.ErrorDetail'
+        $ref: '#/definitions/dataquery.ErrorDetail'
     type: object
-  pkg_domain_dataquery.MetricsResponse:
+  dataquery.InstanceMeta:
+    properties:
+      alert_subscriber:
+        type: string
+      attach_db:
+        type: string
+      backup_method:
+        type: string
+      business_owner:
+        type: string
+      ccm_name:
+        type: string
+      character_set:
+        type: string
+      chinese_desc:
+        type: string
+      created_date:
+        type: string
+      db_type:
+        type: string
+      default_role:
+        type: string
+      entity_name:
+        type: string
+      environment:
+        type: string
+      failover_type:
+        type: string
+      ha_type:
+        type: string
+      host_environment1:
+        type: string
+      host_environment2:
+        type: string
+      host_infra_type1:
+        type: string
+      host_infra_type2:
+        type: string
+      host_ip1:
+        type: string
+      host_ip2:
+        type: string
+      host_name2:
+        type: string
+      host_namel:
+        type: string
+      id:
+        type: integer
+      infra_type:
+        type: string
+      ins_created_date:
+        type: string
+      ins_updated_date:
+        type: string
+      ins_uuid:
+        type: string
+      instance_endpoint:
+        type: string
+      instance_name:
+        type: string
+      instance_port:
+        type: integer
+      instance_vip:
+        type: string
+      is_created_by_cloud:
+        type: string
+      le_name:
+        type: string
+      opr_dba:
+        type: string
+      opr_dba_ii:
+        type: string
+      org_code:
+        type: string
+      os_name:
+        type: string
+      req_cpu:
+        type: number
+      req_memory_gb:
+        type: number
+      req_storage_gb:
+        type: number
+      role:
+        type: string
+      service_user:
+        type: string
+      source_sys:
+        type: string
+      status:
+        type: string
+      subsys_code:
+        type: string
+      user_name:
+        type: string
+      version_detail:
+        type: string
+    type: object
+  dataquery.InstanceMetaResponse:
+    properties:
+      data:
+        $ref: '#/definitions/dataquery.InstanceMeta'
+    type: object
+  dataquery.MetricsResponse:
     properties:
       data:
         items:
           type: string
         type: array
     type: object
-  pkg_domain_dataquery.SeriesDataDTO:
+  dataquery.SeriesDataDTO:
     properties:
       created_at:
         type: string
@@ -51,12 +153,12 @@ definitions:
         type: string
       points:
         items:
-          $ref: '#/definitions/pkg_domain_dataquery.DataPointDTO'
+          $ref: '#/definitions/dataquery.DataPointDTO'
         type: array
       statistics:
-        $ref: '#/definitions/pkg_domain_dataquery.SeriesStatisticsDTO'
+        $ref: '#/definitions/dataquery.SeriesStatisticsDTO'
     type: object
-  pkg_domain_dataquery.SeriesQueryRequestBody:
+  dataquery.SeriesQueryRequestBody:
     properties:
       end:
         type: string
@@ -73,19 +175,19 @@ definitions:
       start:
         type: string
     type: object
-  pkg_domain_dataquery.SeriesResponse:
+  dataquery.SeriesResponse:
     properties:
       data:
         items:
-          $ref: '#/definitions/pkg_domain_dataquery.SeriesDataDTO'
+          $ref: '#/definitions/dataquery.SeriesDataDTO'
         type: array
     type: object
-  pkg_domain_dataquery.SeriesSingleResponse:
+  dataquery.SeriesSingleResponse:
     properties:
       data:
-        $ref: '#/definitions/pkg_domain_dataquery.SeriesDataDTO'
+        $ref: '#/definitions/dataquery.SeriesDataDTO'
     type: object
-  pkg_domain_dataquery.SeriesStatisticsDTO:
+  dataquery.SeriesStatisticsDTO:
     properties:
       avg:
         type: number
@@ -98,7 +200,6 @@ definitions:
       sum:
         type: number
     type: object
-host: localhost:8084
 info:
   contact: {}
   description: RESTful API for querying time series data from TimescaleDB
@@ -114,14 +215,46 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/pkg_domain_dataquery.EndpointsResponse'
+            $ref: '#/definitions/dataquery.EndpointsResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+            $ref: '#/definitions/dataquery.ErrorResponse'
       summary: Get all endpoints
       tags:
       - endpoints
+  /instances/{endpoint}:
+    get:
+      description: Get database instance metadata (db_type, entity_name, instance_vip,
+        instance_port, etc.) by endpoint
+      parameters:
+      - description: Instance endpoint
+        in: path
+        name: endpoint
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dataquery.InstanceMetaResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dataquery.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dataquery.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dataquery.ErrorResponse'
+      summary: Get instance metadata by endpoint
+      tags:
+      - instances
   /metrics:
     get:
       description: Get all distinct metrics for a specific endpoint
@@ -137,15 +270,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/pkg_domain_dataquery.MetricsResponse'
+            $ref: '#/definitions/dataquery.MetricsResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+            $ref: '#/definitions/dataquery.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+            $ref: '#/definitions/dataquery.ErrorResponse'
       summary: Get metrics for an endpoint
       tags:
       - metrics
@@ -185,15 +318,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/pkg_domain_dataquery.SeriesResponse'
+            $ref: '#/definitions/dataquery.SeriesResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+            $ref: '#/definitions/dataquery.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+            $ref: '#/definitions/dataquery.ErrorResponse'
       summary: Query series data
       tags:
       - series
@@ -220,19 +353,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/pkg_domain_dataquery.SeriesSingleResponse'
+            $ref: '#/definitions/dataquery.SeriesSingleResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+            $ref: '#/definitions/dataquery.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+            $ref: '#/definitions/dataquery.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+            $ref: '#/definitions/dataquery.ErrorResponse'
       summary: Get series by ID
       tags:
       - series
@@ -247,22 +380,22 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/pkg_domain_dataquery.SeriesQueryRequestBody'
+          $ref: '#/definitions/dataquery.SeriesQueryRequestBody'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/pkg_domain_dataquery.SeriesResponse'
+            $ref: '#/definitions/dataquery.SeriesResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+            $ref: '#/definitions/dataquery.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/pkg_domain_dataquery.ErrorResponse'
+            $ref: '#/definitions/dataquery.ErrorResponse'
       summary: Query multiple series
       tags:
       - series

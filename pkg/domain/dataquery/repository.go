@@ -23,4 +23,7 @@ type Repository interface {
 
 	// GetSeriesStatistics retrieves statistics for multiple series
 	GetSeriesStatistics(ctx context.Context, req *StatsRequest) (map[int64]*SeriesStatistics, error)
+
+	// GetInstanceByEndpoint retrieves instance metadata by endpoint
+	GetInstanceByEndpoint(ctx context.Context, endpoint string) (*InstanceMeta, error)
 }

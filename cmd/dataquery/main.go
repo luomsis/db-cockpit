@@ -129,6 +129,9 @@ func main() {
 		api.POST("/series/query", func(c context.Context, ctx *app.RequestContext) {
 			handler.QuerySeries(c, ctx)
 		})
+		api.GET("/instances/:endpoint", func(c context.Context, ctx *app.RequestContext) {
+			handler.GetInstance(c, ctx)
+		})
 	}
 
 	// Health check endpoint
@@ -179,6 +182,7 @@ func printEndpoints(addr string) {
 	fmt.Printf("  GET  http://%s/api/v1/series?endpoint=<ep>&metric=<m>&start=<t>&end=<t>\n", addr)
 	fmt.Printf("  GET  http://%s/api/v1/series/:id\n", addr)
 	fmt.Printf("  POST http://%s/api/v1/series/query\n", addr)
+	fmt.Printf("  GET  http://%s/api/v1/instances/:endpoint\n", addr)
 	fmt.Printf("  GET  http://%s/health\n", addr)
 	fmt.Printf("\n📖 Swagger UI: http://%s/swagger/index.html\n", addr)
 	fmt.Println("\n📝 Example REST API Requests:")
@@ -187,23 +191,26 @@ func printEndpoints(addr string) {
   curl http://localhost:8084/api/v1/endpoints
 
   # Get metrics for an endpoint
-  curl "http://localhost:8084/api/v1/metrics?endpoint=/api/metrics"
+  curl "http://localhost:8084/api/v1/metrics?endpoint=mysql-cn-east-1-finance-order-01"
 
   # Query series with filters
-  curl "http://localhost:8084/api/v1/series?endpoint=/api/metrics&metric=cpu_usage&start=2024-01-01T00:00:00Z&end=2024-01-02T00:00:00Z&limit=10"
+  curl "http://localhost:8084/api/v1/series?endpoint=mysql-cn-east-1-finance-order-01&metric=cpu_usage_percent&start=2024-01-01T00:00:00Z&end=2024-12-31T00:00:00Z&limit=10"
 
   # Get series by ID
-  curl http://localhost:8084/api/v1/series/123
+  curl http://localhost:8084/api/v1/series/1
 
   # Complex query with POST
   curl -X POST http://localhost:8084/api/v1/series/query \
     -H "Content-Type: application/json" \
     -d '{
-      "endpoints": ["/api/metrics"],
-      "metrics": ["cpu_usage"],
+      "endpoints": ["mysql-cn-east-1-finance-order-01"],
+      "metrics": ["cpu_usage_percent"],
       "start": "2024-01-01T00:00:00Z",
-      "end": "2024-01-02T00:00:00Z"
+      "end": "2024-12-31T00:00:00Z"
     }'
+
+  # Get instance metadata by endpoint
+  curl http://localhost:8084/api/v1/instances/mysql-cn-east-1-finance-order-01
 `)
 	fmt.Println("\n========================================")
 }
