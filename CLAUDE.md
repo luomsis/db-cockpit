@@ -177,3 +177,12 @@ scripts/
 └── dev/                   # Development utilities
     └── services.sh       # Start/stop/restart services
 ```
+
+## API Development Workflow
+
+When adding or modifying API endpoints in the Data Query Service:
+
+1. Update handler with swagger annotations (@Summary, @Description, @Tags, @Router, etc.)
+2. Update `docs/swagger.json` with new endpoint path and response definitions
+3. Run tests: `go test ./pkg/domain/dataquery/... -v`
+4. Verify Swagger UI at `/swagger/index.html` displays the new endpoint
