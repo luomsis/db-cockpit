@@ -15,6 +15,7 @@ type mockDataQueryService struct {
 	endpoints []string
 	metrics   []string
 	series    []*SeriesData
+	instances []*InstanceMeta
 	err       error
 }
 
@@ -60,6 +61,12 @@ func (m *mockDataQueryService) GetInstanceByEndpoint(ctx context.Context, endpoi
 		return nil, m.err
 	}
 	return nil, nil
+}
+func (m *mockDataQueryService) GetAllInstances(ctx context.Context) ([]*InstanceMeta, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.instances, nil
 }
 
 func createTestRequestContext(body string) (context.Context, *app.RequestContext) {

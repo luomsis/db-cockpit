@@ -115,6 +115,13 @@ func (m *mockRepository) GetInstanceByEndpoint(ctx context.Context, endpoint str
 	return nil, nil
 }
 
+func (m *mockRepository) GetAllInstances(ctx context.Context) ([]*InstanceMeta, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return []*InstanceMeta{}, nil
+}
+
 // Service Tests
 
 func TestServiceName(t *testing.T) {
