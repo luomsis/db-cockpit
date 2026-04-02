@@ -16,8 +16,6 @@ import (
 	"github.com/db-cockpit/pkg/common/logger"
 	"github.com/db-cockpit/pkg/domain/dataquery"
 	_ "github.com/db-cockpit/docs" // swagger docs
-	"github.com/hertz-contrib/swagger"
-	swaggerFiles "github.com/swaggo/files"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 )
@@ -129,6 +127,9 @@ func main() {
 		api.POST("/series/query", func(c context.Context, ctx *app.RequestContext) {
 			handler.QuerySeries(c, ctx)
 		})
+		api.GET("/instances", func(c context.Context, ctx *app.RequestContext) {
+			handler.GetInstances(c, ctx)
+		})
 		api.GET("/instances/:endpoint", func(c context.Context, ctx *app.RequestContext) {
 			handler.GetInstance(c, ctx)
 		})
@@ -139,8 +140,11 @@ func main() {
 		ctx.JSON(http.StatusOK, map[string]string{"status": "ok"})
 	})
 
-	// Swagger UI
-	h.GET("/swagger/*any", swagger.WrapHandler(swaggerFiles.Handler))
+	// Swagger UI (using local static files)
+	swaggerHandler := dataquery.SwaggerUIHandler()
+	h.GET("/swagger/*any", func(c context.Context, ctx *app.RequestContext) {
+		swaggerHandler(c, ctx)
+	})
 
 	// Start server in goroutine
 	go func() {
@@ -182,6 +186,7 @@ func printEndpoints(addr string) {
 	fmt.Printf("  GET  http://%s/api/v1/series?endpoint=<ep>&metric=<m>&start=<t>&end=<t>\n", addr)
 	fmt.Printf("  GET  http://%s/api/v1/series/:id\n", addr)
 	fmt.Printf("  POST http://%s/api/v1/series/query\n", addr)
+	fmt.Printf("  GET  http://%s/api/v1/instances\n", addr)
 	fmt.Printf("  GET  http://%s/api/v1/instances/:endpoint\n", addr)
 	fmt.Printf("  GET  http://%s/health\n", addr)
 	fmt.Printf("\n📖 Swagger UI: http://%s/swagger/index.html\n", addr)
@@ -208,6 +213,9 @@ func printEndpoints(addr string) {
       "start": "2024-01-01T00:00:00Z",
       "end": "2024-12-31T00:00:00Z"
     }'
+
+  # Get all instances
+  curl http://localhost:8084/api/v1/instances
 
   # Get instance metadata by endpoint
   curl http://localhost:8084/api/v1/instances/mysql-cn-east-1-finance-order-01
