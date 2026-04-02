@@ -34,6 +34,32 @@
                 }
             }
         },
+        "/instances": {
+            "get": {
+                "description": "Get all database instances with full metadata",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "instances"
+                ],
+                "summary": "Get all instances",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dataquery.InstancesListResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dataquery.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/instances/{endpoint}": {
             "get": {
                 "description": "Get database instance metadata (db_type, entity_name, instance_vip, instance_port, etc.) by endpoint",
@@ -493,6 +519,17 @@
             "properties": {
                 "data": {
                     "$ref": "#/definitions/dataquery.InstanceMeta"
+                }
+            }
+        },
+        "dataquery.InstancesListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dataquery.InstanceMeta"
+                    }
                 }
             }
         },
