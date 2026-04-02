@@ -26,4 +26,7 @@ type Repository interface {
 
 	// GetInstanceByEndpoint retrieves instance metadata by endpoint
 	GetInstanceByEndpoint(ctx context.Context, endpoint string) (*InstanceMeta, error)
+
+	// GetAllInstances retrieves all instance metadata
+	GetAllInstances(ctx context.Context) ([]*InstanceMeta, error)
 }

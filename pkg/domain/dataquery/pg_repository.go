@@ -355,3 +355,53 @@ func (r *PGRepository) GetInstanceByEndpoint(ctx context.Context, endpoint strin
 	}
 	return &instance, nil
 }
+
+// GetAllInstances retrieves all instance metadata
+func (r *PGRepository) GetAllInstances(ctx context.Context) ([]*InstanceMeta, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, db_type, entity_name, chinese_desc, org_code, service_user, opr_dba,
+			   business_owner, alert_subscriber, infra_type, req_cpu, req_memory_gb,
+			   req_storage_gb, created_date, environment, opr_dba_ii, ins_created_date,
+			   ins_updated_date, host_environment1, host_environment2, le_name,
+			   instance_endpoint, subsys_code, source_sys, attach_db, host_namel,
+			   host_name2, default_role, "role", status, version_detail, instance_name,
+			   is_created_by_cloud, character_set, instance_vip, instance_port, user_name,
+			   host_ip1, host_infra_type1, os_name, host_ip2, host_infra_type2,
+			   ha_type, backup_method, failover_type, ins_uuid, ccm_name
+		FROM instance_meta
+		ORDER BY instance_endpoint
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query all instances: %w", err)
+	}
+	defer rows.Close()
+
+	var instances []*InstanceMeta
+	for rows.Next() {
+		var instance InstanceMeta
+		err := rows.Scan(
+			&instance.ID, &instance.DbType, &instance.EntityName, &instance.ChineseDesc,
+			&instance.OrgCode, &instance.ServiceUser, &instance.OprDba, &instance.BusinessOwner,
+			&instance.AlertSubscriber, &instance.InfraType, &instance.ReqCPU, &instance.ReqMemoryGB,
+			&instance.ReqStorageGB, &instance.CreatedDate, &instance.Environment, &instance.OprDbaII,
+			&instance.InsCreatedDate, &instance.InsUpdatedDate, &instance.HostEnvironment1,
+			&instance.HostEnvironment2, &instance.LeName, &instance.InstanceEndpoint,
+			&instance.SubsysCode, &instance.SourceSys, &instance.AttachDb, &instance.HostNamel,
+			&instance.HostName2, &instance.DefaultRole, &instance.Role, &instance.Status,
+			&instance.VersionDetail, &instance.InstanceName, &instance.IsCreatedByCloud,
+			&instance.CharacterSet, &instance.InstanceVip, &instance.InstancePort, &instance.UserName,
+			&instance.HostIP1, &instance.HostInfraType1, &instance.OsName, &instance.HostIP2,
+			&instance.HostInfraType2, &instance.HaType, &instance.BackupMethod, &instance.FailoverType,
+			&instance.InsUUID, &instance.CcmName,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan instance: %w", err)
+		}
+		instances = append(instances, &instance)
+	}
+
+	if instances == nil {
+		instances = []*InstanceMeta{}
+	}
+	return instances, nil
+}
