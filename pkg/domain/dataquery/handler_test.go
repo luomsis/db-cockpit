@@ -459,3 +459,83 @@ func parseTestTime(s string) time.Time {
 	}
 	return t
 }
+
+func TestGetInstances(t *testing.T) {
+	mockService := &mockDataQueryService{
+		instances: []*InstanceMeta{
+			{
+				ID:               1,
+				DbType:           "mysql",
+				EntityName:       "finance-order",
+				InstanceEndpoint: "mysql-cn-east-1-finance-order-01",
+				InstanceVip:      "10.0.1.100",
+				InstancePort:     3306,
+				Status:           "active",
+			},
+		},
+	}
+	handler := NewHandler(mockService)
+
+	ctx, reqCtx := createTestRequestContext("")
+	handler.GetInstances(ctx, reqCtx)
+
+	if reqCtx.Response.StatusCode() != 200 {
+		t.Errorf("GetInstances() status = %d, want 200", reqCtx.Response.StatusCode())
+	}
+
+	var resp InstancesListResponse
+	if err := json.Unmarshal(reqCtx.Response.Body(), &resp); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if len(resp.Data) != 1 {
+		t.Errorf("GetInstances() returned %d instances, want 1", len(resp.Data))
+	}
+	if resp.Data[0].InstanceEndpoint != "mysql-cn-east-1-finance-order-01" {
+		t.Errorf("GetInstances() endpoint = %s, want mysql-cn-east-1-finance-order-01", resp.Data[0].InstanceEndpoint)
+	}
+}
+
+func TestGetInstances_EmptyList(t *testing.T) {
+	mockService := &mockDataQueryService{
+		instances: []*InstanceMeta{},
+	}
+	handler := NewHandler(mockService)
+
+	ctx, reqCtx := createTestRequestContext("")
+	handler.GetInstances(ctx, reqCtx)
+
+	if reqCtx.Response.StatusCode() != 200 {
+		t.Errorf("GetInstances() status = %d, want 200", reqCtx.Response.StatusCode())
+	}
+
+	var resp InstancesListResponse
+	if err := json.Unmarshal(reqCtx.Response.Body(), &resp); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if len(resp.Data) != 0 {
+		t.Errorf("GetInstances() returned %d instances, want 0", len(resp.Data))
+	}
+}
+
+func TestGetInstances_ServiceError(t *testing.T) {
+	mockService := &mockDataQueryService{err: context.Canceled}
+	handler := NewHandler(mockService)
+
+	ctx, reqCtx := createTestRequestContext("")
+	handler.GetInstances(ctx, reqCtx)
+
+	if reqCtx.Response.StatusCode() != 500 {
+		t.Errorf("GetInstances() status = %d, want 500", reqCtx.Response.StatusCode())
+	}
+
+	var resp ErrorResponse
+	if err := json.Unmarshal(reqCtx.Response.Body(), &resp); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+
+	if resp.Error.Code != "INTERNAL_ERROR" {
+		t.Errorf("GetInstances() error code = %s, want INTERNAL_ERROR", resp.Error.Code)
+	}
+}
