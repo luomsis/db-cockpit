@@ -94,6 +94,11 @@ type InstanceMetaResponse struct {
 	Data *InstanceMeta `json:"data"`
 }
 
+// InstancesListResponse is the response for GetInstances
+type InstancesListResponse struct {
+	Data []*InstanceMeta `json:"data"`
+}
+
 // Handlers
 
 // GetEndpoints handles GET /endpoints requests
@@ -330,6 +335,28 @@ func (h *Handler) GetInstance(ctx context.Context, c *app.RequestContext) {
 
 	logger.Debug("GetInstance success", zap.String("endpoint", endpoint), zap.String("db_type", instance.DbType))
 	c.JSON(200, InstanceMetaResponse{Data: instance})
+}
+
+// GetInstances handles GET /instances requests
+// @Summary Get all instances
+// @Description Get all database instances with full metadata
+// @Tags instances
+// @Produce json
+// @Success 200 {object} InstancesListResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /instances [get]
+func (h *Handler) GetInstances(ctx context.Context, c *app.RequestContext) {
+	logger.Debug("GetInstances called")
+
+	instances, err := h.service.GetAllInstances(ctx)
+	if err != nil {
+		logger.Error("GetInstances failed", zap.Error(err))
+		c.JSON(500, ErrorResponse{Error: ErrorDetail{Code: "INTERNAL_ERROR", Message: err.Error()}})
+		return
+	}
+
+	logger.Debug("GetInstances success", zap.Int("count", len(instances)))
+	c.JSON(200, InstancesListResponse{Data: instances})
 }
 
 // Helper functions
