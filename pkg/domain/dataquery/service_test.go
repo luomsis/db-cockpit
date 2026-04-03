@@ -115,11 +115,18 @@ func (m *mockRepository) GetInstanceByEndpoint(ctx context.Context, endpoint str
 	return nil, nil
 }
 
-func (m *mockRepository) GetAllInstances(ctx context.Context) ([]*InstanceMeta, error) {
+func (m *mockRepository) GetAllInstances(ctx context.Context, req *InstancesQueryRequest) ([]*InstanceMeta, int64, error) {
+	if m.err != nil {
+		return nil, 0, m.err
+	}
+	return []*InstanceMeta{}, 0, nil
+}
+
+func (m *mockRepository) GetAlertsByEndpoint(ctx context.Context, endpoint string) ([]*Alert, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
-	return []*InstanceMeta{}, nil
+	return []*Alert{}, nil
 }
 
 // Service Tests
@@ -310,9 +317,11 @@ func TestServiceQuerySeriesMulti(t *testing.T) {
 		wantCount int
 	}{
 		{"all series (no filter)", &MultiSeriesQuery{TimeRange: timeRange}, 2},
-		{"by endpoints", &MultiSeriesQuery{Endpoints: []string{"/api/metrics"}, TimeRange: timeRange}, 0},
-		{"by metrics", &MultiSeriesQuery{Metrics: []string{"cpu_usage"}, TimeRange: timeRange}, 0},
-		{"by both", &MultiSeriesQuery{Endpoints: []string{"/api/metrics"}, Metrics: []string{"cpu_usage"}, TimeRange: timeRange}, 1},
+		{"by endpoints only", &MultiSeriesQuery{Endpoints: []string{"/api/metrics"}, TimeRange: timeRange}, 2},
+		{"by metrics only", &MultiSeriesQuery{Metrics: []string{"cpu_usage"}, TimeRange: timeRange}, 1},
+		{"by both endpoints and metrics", &MultiSeriesQuery{Endpoints: []string{"/api/metrics"}, Metrics: []string{"cpu_usage"}, TimeRange: timeRange}, 1},
+		{"by non-existent endpoint", &MultiSeriesQuery{Endpoints: []string{"/unknown"}, TimeRange: timeRange}, 0},
+		{"by non-existent metric", &MultiSeriesQuery{Metrics: []string{"unknown_metric"}, TimeRange: timeRange}, 0},
 	}
 
 	for _, tt := range tests {
@@ -365,5 +374,457 @@ func TestServiceRepositoryError(t *testing.T) {
 	_, err := svc.GetEndpoints(context.Background())
 	if err == nil {
 		t.Error("GetEndpoints() should return error when repository fails")
+	}
+}
+
+func TestServiceGetAllInstances_Pagination(t *testing.T) {
+	// Create mock repo with pagination support
+	mockRepo := &mockRepositoryWithPagination{
+		instances: []*InstanceMeta{
+			{ID: 1, InstanceEndpoint: "instance-1"},
+			{ID: 2, InstanceEndpoint: "instance-2"},
+			{ID: 3, InstanceEndpoint: "instance-3"},
+			{ID: 4, InstanceEndpoint: "instance-4"},
+			{ID: 5, InstanceEndpoint: "instance-5"},
+		},
+		totalCount: 5,
+	}
+	svc := NewService(mockRepo)
+
+	req := &InstancesQueryRequest{
+		Pagination: PaginationRequest{Page: 1, PageSize: 2},
+	}
+
+	resp, err := svc.GetAllInstances(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetAllInstances() error = %v", err)
+	}
+
+	if resp.Pagination == nil {
+		t.Fatal("GetAllInstances() pagination is nil")
+	}
+
+	// Verify pagination calculation
+	if resp.Pagination.TotalCount != 5 {
+		t.Errorf("GetAllInstances() total_count = %d, want 5", resp.Pagination.TotalCount)
+	}
+	if resp.Pagination.TotalPages != 3 {
+		t.Errorf("GetAllInstances() total_pages = %d, want 3", resp.Pagination.TotalPages)
+	}
+	if resp.Pagination.CurrentPage != 1 {
+		t.Errorf("GetAllInstances() current_page = %d, want 1", resp.Pagination.CurrentPage)
+	}
+	if resp.Pagination.PageSize != 2 {
+		t.Errorf("GetAllInstances() page_size = %d, want 2", resp.Pagination.PageSize)
+	}
+}
+
+func TestServiceGetAllInstances_EmptyResult(t *testing.T) {
+	mockRepo := &mockRepositoryWithPagination{
+		instances:  []*InstanceMeta{},
+		totalCount: 0,
+	}
+	svc := NewService(mockRepo)
+
+	req := &InstancesQueryRequest{
+		Pagination: PaginationRequest{Page: 1, PageSize: 20},
+	}
+
+	resp, err := svc.GetAllInstances(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetAllInstances() error = %v", err)
+	}
+
+	if len(resp.Data) != 0 {
+		t.Errorf("GetAllInstances() returned %d instances, want 0", len(resp.Data))
+	}
+	if resp.Pagination.TotalCount != 0 {
+		t.Errorf("GetAllInstances() total_count = %d, want 0", resp.Pagination.TotalCount)
+	}
+	if resp.Pagination.TotalPages != 0 {
+		t.Errorf("GetAllInstances() total_pages = %d, want 0", resp.Pagination.TotalPages)
+	}
+}
+
+// mockRepositoryWithPagination implements Repository with pagination support for testing
+type mockRepositoryWithPagination struct {
+	instances  []*InstanceMeta
+	totalCount int64
+	err        error
+}
+
+func (m *mockRepositoryWithPagination) GetEndpoints(ctx context.Context) ([]string, error) {
+	return []string{}, nil
+}
+func (m *mockRepositoryWithPagination) GetMetrics(ctx context.Context, endpoint string) ([]string, error) {
+	return []string{}, nil
+}
+func (m *mockRepositoryWithPagination) QuerySeries(ctx context.Context, req *SeriesQueryRequest) ([]SeriesMeta, error) {
+	return []SeriesMeta{}, nil
+}
+func (m *mockRepositoryWithPagination) GetSeriesByID(ctx context.Context, id int64) (*SeriesMeta, error) {
+	return nil, nil
+}
+func (m *mockRepositoryWithPagination) GetSeriesPoints(ctx context.Context, req *PointsQueryRequest) (map[int64][]DataPoint, error) {
+	return map[int64][]DataPoint{}, nil
+}
+func (m *mockRepositoryWithPagination) GetSeriesStatistics(ctx context.Context, req *StatsRequest) (map[int64]*SeriesStatistics, error) {
+	return map[int64]*SeriesStatistics{}, nil
+}
+func (m *mockRepositoryWithPagination) GetInstanceByEndpoint(ctx context.Context, endpoint string) (*InstanceMeta, error) {
+	return nil, nil
+}
+func (m *mockRepositoryWithPagination) GetAllInstances(ctx context.Context, req *InstancesQueryRequest) ([]*InstanceMeta, int64, error) {
+	if m.err != nil {
+		return nil, 0, m.err
+	}
+	return m.instances, m.totalCount, nil
+}
+func (m *mockRepositoryWithPagination) GetAlertsByEndpoint(ctx context.Context, endpoint string) ([]*Alert, error) {
+	return []*Alert{}, nil
+}
+
+// mockRepositoryWithInstance supports GetInstanceByEndpoint and GetAlertsByEndpoint
+type mockRepositoryWithInstance struct {
+	mockRepository
+	instance *InstanceMeta
+	alerts   []*Alert
+}
+
+func (m *mockRepositoryWithInstance) GetInstanceByEndpoint(ctx context.Context, endpoint string) (*InstanceMeta, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.instance, nil
+}
+
+func (m *mockRepositoryWithInstance) GetAlertsByEndpoint(ctx context.Context, endpoint string) ([]*Alert, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.alerts, nil
+}
+
+// mockRepositoryWithInterval tracks interval parameter for testing sampling
+type mockRepositoryWithInterval struct {
+	mockRepository
+	lastInterval time.Duration
+}
+
+func (m *mockRepositoryWithInterval) GetSeriesPoints(ctx context.Context, req *PointsQueryRequest) (map[int64][]DataPoint, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	m.lastInterval = req.Interval
+	return m.points, nil
+}
+
+// mockRepositoryWithLabelFilter tracks label filter for testing
+type mockRepositoryWithLabelFilter struct {
+	mockRepository
+	lastLabelFilter string
+}
+
+func (m *mockRepositoryWithLabelFilter) QuerySeries(ctx context.Context, req *SeriesQueryRequest) ([]SeriesMeta, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	m.lastLabelFilter = req.LabelFilter
+	return m.series, nil
+}
+
+// mockRepositoryWithErrorForPoints returns errors for specific operations
+type mockRepositoryWithErrorForPoints struct {
+	mockRepository
+	pointsErr error
+	statsErr  error
+}
+
+func (m *mockRepositoryWithErrorForPoints) GetSeriesPoints(ctx context.Context, req *PointsQueryRequest) (map[int64][]DataPoint, error) {
+	if m.pointsErr != nil {
+		return nil, m.pointsErr
+	}
+	return m.points, nil
+}
+
+func (m *mockRepositoryWithErrorForPoints) GetSeriesStatistics(ctx context.Context, req *StatsRequest) (map[int64]*SeriesStatistics, error) {
+	if m.statsErr != nil {
+		return nil, m.statsErr
+	}
+	return m.statistics, nil
+}
+
+// ============================================================
+// Phase 1: Service Layer Unit Tests
+// ============================================================
+
+func TestServiceGetInstanceByEndpoint_Success(t *testing.T) {
+	mockRepo := &mockRepositoryWithInstance{
+		instance: &InstanceMeta{
+			ID:               1,
+			DbType:           "mysql",
+			EntityName:       "finance-order",
+			InstanceEndpoint: "mysql-cn-east-1-finance-order-01",
+			InstanceVip:      "10.0.1.100",
+			InstancePort:     3306,
+			Status:           "active",
+		},
+	}
+	svc := NewService(mockRepo)
+
+	instance, err := svc.GetInstanceByEndpoint(context.Background(), "mysql-cn-east-1-finance-order-01")
+	if err != nil {
+		t.Fatalf("GetInstanceByEndpoint() error = %v", err)
+	}
+
+	if instance == nil {
+		t.Fatal("GetInstanceByEndpoint() returned nil for existing instance")
+	}
+
+	if instance.InstanceEndpoint != "mysql-cn-east-1-finance-order-01" {
+		t.Errorf("GetInstanceByEndpoint() endpoint = %s, want mysql-cn-east-1-finance-order-01", instance.InstanceEndpoint)
+	}
+
+	if instance.DbType != "mysql" {
+		t.Errorf("GetInstanceByEndpoint() db_type = %s, want mysql", instance.DbType)
+	}
+}
+
+func TestServiceGetInstanceByEndpoint_NotFound(t *testing.T) {
+	mockRepo := &mockRepositoryWithInstance{
+		instance: nil,
+	}
+	svc := NewService(mockRepo)
+
+	instance, err := svc.GetInstanceByEndpoint(context.Background(), "nonexistent-endpoint")
+	if err != nil {
+		t.Fatalf("GetInstanceByEndpoint() error = %v", err)
+	}
+
+	if instance != nil {
+		t.Error("GetInstanceByEndpoint() should return nil for non-existent endpoint")
+	}
+}
+
+func TestServiceGetAlertsByEndpoint_Success(t *testing.T) {
+	mockRepo := &mockRepositoryWithInstance{
+		alerts: []*Alert{
+			{ID: 1, EventID: "evt-1", Endpoint: "test-endpoint", AlertText: "High CPU", Status: "firing"},
+			{ID: 2, EventID: "evt-2", Endpoint: "test-endpoint", AlertText: "Memory warning", Status: "resolved"},
+		},
+	}
+	svc := NewService(mockRepo)
+
+	alerts, err := svc.GetAlertsByEndpoint(context.Background(), "test-endpoint")
+	if err != nil {
+		t.Fatalf("GetAlertsByEndpoint() error = %v", err)
+	}
+
+	if len(alerts) != 2 {
+		t.Errorf("GetAlertsByEndpoint() returned %d alerts, want 2", len(alerts))
+	}
+
+	if alerts[0].AlertText != "High CPU" {
+		t.Errorf("GetAlertsByEndpoint() first alert text = %s, want 'High CPU'", alerts[0].AlertText)
+	}
+}
+
+func TestServiceGetAlertsByEndpoint_EmptyResult(t *testing.T) {
+	mockRepo := &mockRepositoryWithInstance{
+		alerts: []*Alert{},
+	}
+	svc := NewService(mockRepo)
+
+	alerts, err := svc.GetAlertsByEndpoint(context.Background(), "endpoint-with-no-alerts")
+	if err != nil {
+		t.Fatalf("GetAlertsByEndpoint() error = %v", err)
+	}
+
+	if alerts == nil {
+		t.Error("GetAlertsByEndpoint() should return empty slice, not nil")
+	}
+
+	if len(alerts) != 0 {
+		t.Errorf("GetAlertsByEndpoint() returned %d alerts, want 0", len(alerts))
+	}
+}
+
+func TestServiceQuerySeriesWithInterval(t *testing.T) {
+	mockRepo := &mockRepositoryWithInterval{
+		mockRepository: mockRepository{
+			series: []SeriesMeta{
+				{ID: 1, Endpoint: "/api/metrics", Metric: "cpu_usage", Labels: map[string]string{"host": "server1"}, CreatedAt: time.Now()},
+			},
+			points: map[int64][]DataPoint{
+				1: {{Time: time.Now(), Value: 75.5}},
+			},
+		},
+	}
+	svc := NewService(mockRepo)
+
+	now := time.Now()
+	timeRange := TimeRange{
+		Start: now.Add(-1 * time.Hour),
+		End:   now,
+	}
+
+	// Test with 5 minute sampling interval
+	req := &SeriesQuery{
+		TimeRange: timeRange,
+		Interval:  5 * time.Minute,
+	}
+
+	_, err := svc.QuerySeries(context.Background(), req)
+	if err != nil {
+		t.Fatalf("QuerySeries() error = %v", err)
+	}
+
+	if mockRepo.lastInterval != 5*time.Minute {
+		t.Errorf("QuerySeries() interval passed to repository = %v, want %v", mockRepo.lastInterval, 5*time.Minute)
+	}
+}
+
+func TestServiceQuerySeriesMultiWithLabelFilter(t *testing.T) {
+	mockRepo := &mockRepositoryWithLabelFilter{
+		mockRepository: mockRepository{
+			series: []SeriesMeta{
+				{ID: 1, Endpoint: "/api/metrics", Metric: "cpu_usage", Labels: map[string]string{"env": "prod", "host": "server1"}, CreatedAt: time.Now()},
+			},
+		},
+	}
+	svc := NewService(mockRepo)
+
+	now := time.Now()
+	timeRange := TimeRange{
+		Start: now.Add(-1 * time.Hour),
+		End:   now,
+	}
+
+	labelFilter := `env="prod" AND host=~"server.*"`
+	req := &MultiSeriesQuery{
+		TimeRange:   timeRange,
+		LabelFilter: labelFilter,
+	}
+
+	_, err := svc.QuerySeriesMulti(context.Background(), req)
+	if err != nil {
+		t.Fatalf("QuerySeriesMulti() error = %v", err)
+	}
+
+	if mockRepo.lastLabelFilter != labelFilter {
+		t.Errorf("QuerySeriesMulti() label filter passed to repository = %s, want %s", mockRepo.lastLabelFilter, labelFilter)
+	}
+}
+
+func TestServiceGetMetrics_ErrorPropagation(t *testing.T) {
+	mockRepo := newMockRepository()
+	mockRepo.err = context.Canceled
+	svc := NewService(mockRepo)
+
+	_, err := svc.GetMetrics(context.Background(), "/api/metrics")
+	if err == nil {
+		t.Error("GetMetrics() should return error when repository fails")
+	}
+
+	if err != context.Canceled {
+		t.Errorf("GetMetrics() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestServiceQuerySeries_ErrorPropagation(t *testing.T) {
+	mockRepo := newMockRepository()
+	mockRepo.err = context.Canceled
+	svc := NewService(mockRepo)
+
+	now := time.Now()
+	timeRange := TimeRange{
+		Start: now.Add(-1 * time.Hour),
+		End:   now,
+	}
+
+	_, err := svc.QuerySeries(context.Background(), &SeriesQuery{TimeRange: timeRange})
+	if err == nil {
+		t.Error("QuerySeries() should return error when repository fails")
+	}
+
+	if err != context.Canceled {
+		t.Errorf("QuerySeries() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestServiceGetSeriesByID_ErrorPropagation_PointsError(t *testing.T) {
+	mockRepo := &mockRepositoryWithErrorForPoints{
+		mockRepository: mockRepository{
+			series: []SeriesMeta{
+				{ID: 1, Endpoint: "/api/metrics", Metric: "cpu_usage", Labels: map[string]string{"host": "server1"}, CreatedAt: time.Now()},
+			},
+		},
+		pointsErr: context.Canceled,
+	}
+	svc := NewService(mockRepo)
+
+	now := time.Now()
+	timeRange := TimeRange{
+		Start: now.Add(-1 * time.Hour),
+		End:   now,
+	}
+
+	_, err := svc.GetSeriesByID(context.Background(), 1, &timeRange)
+	if err == nil {
+		t.Error("GetSeriesByID() should return error when GetSeriesPoints fails")
+	}
+
+	if err != context.Canceled {
+		t.Errorf("GetSeriesByID() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestServiceGetSeriesByID_ErrorPropagation_StatsError(t *testing.T) {
+	mockRepo := &mockRepositoryWithErrorForPoints{
+		mockRepository: mockRepository{
+			series: []SeriesMeta{
+				{ID: 1, Endpoint: "/api/metrics", Metric: "cpu_usage", Labels: map[string]string{"host": "server1"}, CreatedAt: time.Now()},
+			},
+			points: map[int64][]DataPoint{
+				1: {{Time: time.Now(), Value: 75.5}},
+			},
+		},
+		statsErr: context.DeadlineExceeded,
+	}
+	svc := NewService(mockRepo)
+
+	now := time.Now()
+	timeRange := TimeRange{
+		Start: now.Add(-1 * time.Hour),
+		End:   now,
+	}
+
+	_, err := svc.GetSeriesByID(context.Background(), 1, &timeRange)
+	if err == nil {
+		t.Error("GetSeriesByID() should return error when GetSeriesStatistics fails")
+	}
+
+	if err != context.DeadlineExceeded {
+		t.Errorf("GetSeriesByID() error = %v, want context.DeadlineExceeded", err)
+	}
+}
+
+func TestServiceGetAllInstances_ErrorPropagation(t *testing.T) {
+	mockRepo := &mockRepositoryWithPagination{
+		err: context.Canceled,
+	}
+	svc := NewService(mockRepo)
+
+	req := &InstancesQueryRequest{
+		Pagination: PaginationRequest{Page: 1, PageSize: 20},
+	}
+
+	_, err := svc.GetAllInstances(context.Background(), req)
+	if err == nil {
+		t.Error("GetAllInstances() should return error when repository fails")
+	}
+
+	if err != context.Canceled {
+		t.Errorf("GetAllInstances() error = %v, want context.Canceled", err)
 	}
 }
