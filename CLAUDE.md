@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 工作原则
+
+以第一性原理从原始需求和问题本质出发，不从惯例或模板出发。
+
+1. **不要假设我清楚自己想要什么。** 动机或目标不清晰时，停下来讨论。
+2. **目标清晰但路径不是最短的，直接告诉我并建议更好的办法。**
+3. **遇到问题追根因，不打补丁。** 每个决策都要能回答"为什么"。
+4. **输出说重点，砍掉一切不改变决策的信息。**
+
 ## Build and Run Commands
 
 ```bash
@@ -74,11 +83,28 @@ Data Query Service provides a REST API for time-series queries:
 | `/api/v1/series?...` | GET | Query series with filters |
 | `/api/v1/series/:id` | GET | Get series by ID |
 | `/api/v1/series/query` | POST | Complex query with JSON body |
+| `/api/v1/instances` | GET | Get all instances with pagination |
+| `/api/v1/instances/:endpoint` | GET | Get instance by endpoint |
+| `/api/v1/alerts/:endpoint` | GET | Get alerts for an endpoint |
 | `/swagger/index.html` | GET | Swagger UI documentation |
 
 **Handler**: `pkg/domain/dataquery/handler.go`
 **Service**: `pkg/domain/dataquery/service.go`
 **Repository**: `pkg/domain/dataquery/pg_repository.go`
+
+### Label Filter Syntax
+
+Supports PromQL-style label expressions for `/series` endpoint:
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `=` | Exact match | `host="server1"` |
+| `!=` | Not equal | `host!="localhost"` |
+| `=~` | Regex match | `region=~"us-.*"` |
+| `!~` | Regex not match | `region!~"eu-.*"` |
+| `AND` | Logical AND | `host="server1" AND region="us-east"` |
+| `OR` | Logical OR | `host="server1" OR host="server2"` |
+| `()` | Grouping | `(host="s1" OR host="s2") AND env="prod"` |
 
 ## RPC Client Pattern
 
@@ -133,8 +159,9 @@ Middleware extracts tenant info from JWT and injects into request context.
 ```
 test/
 └── integration/
-    ├── query_test.go     # Data Query Service tests
-    └── gateway_test.go   # Gateway E2E tests (curl-based)
+    ├── dataquery_http_test.go  # Data Query HTTP integration tests
+    ├── query_test.go            # Data Query Service tests
+    └── gateway_test.go          # Gateway E2E tests (curl-based)
 
 pkg/api/handler/handler_test.go    # Handler layer tests
 pkg/api/middleware/middleware_test.go # Middleware tests
@@ -149,8 +176,29 @@ pkg/domain/dataquery/*_test.go     # Domain service tests
 go test ./pkg/api/... -v
 go test ./pkg/domain/dataquery/... -v
 
+# Run a single test
+go test ./pkg/domain/dataquery/... -v -run TestServiceQuerySeries
+go test ./test/integration/... -v -run TestDataQueryHTTP_GetSeries
+
 # Integration tests (requires running services)
 go test ./test/integration/... -v
+```
+
+### Integration Test Database
+
+**IMPORTANT**: Integration tests use the existing `postgres` database, NOT a separate `cockpit` database.
+
+Database connection for integration tests:
+- Host: `localhost:5432`
+- User: `postgres`
+- Password: `postgres`
+- Database: `postgres`
+
+The `postgres` database already contains the required tables (`series_meta`, `series_points`, etc.) and test data. Do NOT create a new database for integration tests.
+
+Connection command:
+```bash
+PGPASSWORD=postgres psql -h localhost -U postgres -d postgres
 ```
 
 ### Mock Services
@@ -170,12 +218,21 @@ scripts/
 ├── build/                 # Build and code generation
 │   ├── build.sh          # Build all services
 │   └── generate_proto.sh # Generate protobuf code
-├── db/                    # Database management
-│   ├── db-data.sh        # Manage test data (seed/clear/reset/status)
-│   ├── init-extensions.sql # Initialize TimescaleDB/pgvector/PGMQ
-│   └── insert_test_data.go # Insert test data
 └── dev/                   # Development utilities
     └── services.sh       # Start/stop/restart services
+```
+
+### Service Management
+
+```bash
+# Start/stop all services
+./scripts/dev/services.sh start
+./scripts/dev/services.sh stop
+./scripts/dev/services.sh status
+
+# Manage individual services
+./scripts/dev/services.sh start dataquery
+./scripts/dev/services.sh start gateway
 ```
 
 ## API Development Workflow
@@ -186,3 +243,17 @@ When adding or modifying API endpoints in the Data Query Service:
 2. Update `docs/swagger.json` with new endpoint path and response definitions
 3. Run tests: `go test ./pkg/domain/dataquery/... -v`
 4. Verify Swagger UI at `/swagger/index.html` displays the new endpoint
+
+## Frontend
+
+Next.js dashboard located at `web/dashboard/`:
+
+```
+web/dashboard/
+├── app/           # Pages and layouts
+├── components/    # React components
+├── lib/           # Utilities and API clients
+└── types/         # TypeScript types
+```
+
+Start frontend: `./scripts/dev/services.sh start frontend` or `cd web/dashboard && npm run dev`

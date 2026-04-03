@@ -125,14 +125,10 @@ db-cockpit/
 │   ├── data/              # Data Layer access
 │   └── common/            # Common utilities
 ├── configs/               # Configuration files
-├── scripts/               # Build and test scripts
+├── scripts/               # Build and dev scripts
 │   ├── build/             # Build and code generation
 │   │   ├── build.sh       # Build all services
 │   │   └── generate_proto.sh # Generate protobuf code
-│   ├── db/                # Database management
-│   │   ├── db-data.sh     # Database data management (seed/clear/reset)
-│   │   ├── init-extensions.sql # Initialize TimescaleDB/pgvector/PGMQ
-│   │   └── insert_test_data.go # Test data insertion script
 │   └── dev/               # Development utilities
 │       └── services.sh    # Service management (start/stop/status)
 ├── test/                  # Tests
@@ -239,25 +235,6 @@ The project includes convenient scripts for managing all services:
 
 > **Note**: PostgreSQL/TimescaleDB should be running before starting services. Use `docker-compose up -d` or your preferred method to start the database.
 
-#### Manage Test Data
-
-```bash
-# Check database data status
-./scripts/db/db-data.sh status
-
-# Insert test data
-./scripts/db/db-data.sh seed
-
-# Clear all data
-./scripts/db/db-data.sh clear
-
-# Reset data (clear + seed)
-./scripts/db/db-data.sh reset
-
-# Quick test REST API endpoints
-./scripts/db/db-data.sh test
-```
-
 ### Service Endpoints
 
 After starting all services, the following endpoints are available:
@@ -297,24 +274,6 @@ go run cmd/taskengine/main.go
 chmod +x scripts/build/generate_proto.sh
 ./scripts/build/generate_proto.sh
 ```
-
-### Insert Test Data
-
-Insert sample time-series data for testing:
-
-```bash
-# With default database URL (postgres://postgres:postgres@localhost:5432/dbcockpit)
-go run scripts/db/insert_test_data.go
-
-# With custom database URL
-DATABASE_URL="postgres://user:pass@host:port/db" go run scripts/db/insert_test_data.go
-```
-
-This inserts:
-- 3 endpoints: `/api/metrics`, `/api/health`, `/api/query`
-- Multiple metrics per endpoint (cpu_usage, memory_usage, etc.)
-- 4 label combinations across different hosts, regions, environments
-- ~288 data points per series (24 hours at 5-minute intervals)
 
 ## API Endpoints
 
