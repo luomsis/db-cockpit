@@ -49,6 +49,7 @@ type SeriesQuery struct {
 	LabelFilter string
 	TimeRange   TimeRange
 	Limit       int
+	Interval    time.Duration // Sampling interval (0 = no sampling)
 }
 
 // MultiSeriesQuery represents a query for multiple series
@@ -72,6 +73,7 @@ type SeriesQueryRequest struct {
 type PointsQueryRequest struct {
 	SeriesIDs []int64
 	TimeRange TimeRange
+	Interval  time.Duration // Sampling interval (0 = no sampling)
 }
 
 // StatsRequest is the repository request for series statistics
@@ -129,4 +131,35 @@ type InstanceMeta struct {
 	FailoverType     string    `json:"failover_type"`
 	InsUUID          string    `json:"ins_uuid"`
 	CcmName          string    `json:"ccm_name"`
+}
+
+// Alert represents an alert event from public.alert table
+type Alert struct {
+	ID        int64     `json:"id"`
+	EventID   string    `json:"event_id"`
+	Endpoint  string    `json:"endpoint"`
+	AlertText string    `json:"alert_text"`
+	StartTime time.Time `json:"start_time"`
+	EndTime   time.Time `json:"end_time"`
+	Metric    string    `json:"metric"`
+	Status    string    `json:"status"`
+}
+
+// PaginationRequest represents pagination parameters
+type PaginationRequest struct {
+	Page     int
+	PageSize int
+}
+
+// PaginationMeta contains pagination information for responses
+type PaginationMeta struct {
+	TotalCount  int64 `json:"total_count"`
+	TotalPages  int   `json:"total_pages"`
+	CurrentPage int   `json:"current_page"`
+	PageSize    int   `json:"page_size"`
+}
+
+// InstancesQueryRequest for querying instances with pagination
+type InstancesQueryRequest struct {
+	Pagination PaginationRequest
 }

@@ -96,7 +96,13 @@ type InstanceMetaResponse struct {
 
 // InstancesListResponse is the response for GetInstances
 type InstancesListResponse struct {
-	Data []*InstanceMeta `json:"data"`
+	Data       []*InstanceMeta  `json:"data"`
+	Pagination *PaginationMeta `json:"pagination"`
+}
+
+// AlertsResponse is the response for GetAlerts
+type AlertsResponse struct {
+	Data []*Alert `json:"data"`
 }
 
 // Handlers
@@ -156,13 +162,14 @@ func (h *Handler) GetMetrics(ctx context.Context, c *app.RequestContext) {
 
 // GetSeries handles GET /series requests with query parameters
 // @Summary Query series data
-// @Description Query time series data with optional filters
+// @Description Query time series data with optional filters and sampling
 // @Tags series
 // @Param endpoint query string false "Endpoint filter"
 // @Param metric query string false "Metric filter"
 // @Param label_filter query string false "Label filter expression"
 // @Param start query string true "Start time (RFC3339 or Unix timestamp)"
 // @Param end query string true "End time (RFC3339 or Unix timestamp)"
+// @Param step query string false "Sampling interval (e.g., 5m, 1h). Returns averaged values within each time bucket. Valid range: 1m to 1h."
 // @Param limit query int false "Maximum number of results"
 // @Produce json
 // @Success 200 {object} SeriesResponse
@@ -338,9 +345,11 @@ func (h *Handler) GetInstance(ctx context.Context, c *app.RequestContext) {
 }
 
 // GetInstances handles GET /instances requests
-// @Summary Get all instances
-// @Description Get all database instances with full metadata
+// @Summary Get all instances with pagination
+// @Description Get all database instances with pagination support
 // @Tags instances
+// @Param page query int false "Page number (default: 1)"
+// @Param page_size query int false "Page size (default: 20, max: 100)"
 // @Produce json
 // @Success 200 {object} InstancesListResponse
 // @Failure 500 {object} ErrorResponse
@@ -348,15 +357,90 @@ func (h *Handler) GetInstance(ctx context.Context, c *app.RequestContext) {
 func (h *Handler) GetInstances(ctx context.Context, c *app.RequestContext) {
 	logger.Debug("GetInstances called")
 
-	instances, err := h.service.GetAllInstances(ctx)
+	// Parse pagination params
+	page := parsePageParam(c, 1)       // default 1
+	pageSize := parsePageSizeParam(c, 20) // default 20
+
+	// Validate
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100 // max limit
+	}
+
+	req := &InstancesQueryRequest{
+		Pagination: PaginationRequest{Page: page, PageSize: pageSize},
+	}
+
+	resp, err := h.service.GetAllInstances(ctx, req)
 	if err != nil {
 		logger.Error("GetInstances failed", zap.Error(err))
 		c.JSON(500, ErrorResponse{Error: ErrorDetail{Code: "INTERNAL_ERROR", Message: err.Error()}})
 		return
 	}
 
-	logger.Debug("GetInstances success", zap.Int("count", len(instances)))
-	c.JSON(200, InstancesListResponse{Data: instances})
+	logger.Debug("GetInstances success",
+		zap.Int("count", len(resp.Data)),
+		zap.Int64("total", resp.Pagination.TotalCount),
+		zap.Int("page", resp.Pagination.CurrentPage))
+	c.JSON(200, resp)
+}
+
+// parsePageParam parses the page query parameter with a default value
+func parsePageParam(c *app.RequestContext, defaultVal int) int {
+	if val := c.Query("page"); val != "" {
+		parsed, err := strconv.Atoi(val)
+		if err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return defaultVal
+}
+
+// parsePageSizeParam parses the page_size query parameter with a default value
+func parsePageSizeParam(c *app.RequestContext, defaultVal int) int {
+	if val := c.Query("page_size"); val != "" {
+		parsed, err := strconv.Atoi(val)
+		if err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return defaultVal
+}
+
+// GetAlerts handles GET /alerts/:endpoint requests
+// @Summary Get alerts by endpoint
+// @Description Get all alert events for a specific database instance endpoint
+// @Tags alerts
+// @Param endpoint path string true "Instance endpoint"
+// @Produce json
+// @Success 200 {object} AlertsResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /alerts/{endpoint} [get]
+func (h *Handler) GetAlerts(ctx context.Context, c *app.RequestContext) {
+	endpoint := c.Param("endpoint")
+	if endpoint == "" {
+		logger.Warn("GetAlerts missing endpoint parameter")
+		c.JSON(400, ErrorResponse{Error: ErrorDetail{Code: "INVALID_PARAMETER", Message: "endpoint parameter is required"}})
+		return
+	}
+
+	logger.Debug("GetAlerts called", zap.String("endpoint", endpoint))
+
+	alerts, err := h.service.GetAlertsByEndpoint(ctx, endpoint)
+	if err != nil {
+		logger.Error("GetAlerts failed", zap.String("endpoint", endpoint), zap.Error(err))
+		c.JSON(500, ErrorResponse{Error: ErrorDetail{Code: "INTERNAL_ERROR", Message: err.Error()}})
+		return
+	}
+
+	logger.Debug("GetAlerts success", zap.String("endpoint", endpoint), zap.Int("count", len(alerts)))
+	c.JSON(200, AlertsResponse{Data: alerts})
 }
 
 // Helper functions
@@ -389,6 +473,15 @@ func (h *Handler) parseSeriesQuery(c *app.RequestContext) (*SeriesQuery, error) 
 		return nil, err
 	}
 	query.TimeRange = timeRange
+
+	// Parse step (sampling interval)
+	if stepStr := c.Query("step"); stepStr != "" {
+		interval, err := parseStep(stepStr)
+		if err != nil {
+			return nil, err
+		}
+		query.Interval = interval
+	}
 
 	return query, nil
 }
@@ -483,6 +576,44 @@ type TimeParseError struct {
 
 func (e *TimeParseError) Error() string {
 	return "invalid " + e.Field + " time format: " + e.Value
+}
+
+// InvalidStepError indicates that the step parameter is invalid
+type InvalidStepError struct {
+	Value  string
+	Reason string
+}
+
+func (e *InvalidStepError) Error() string {
+	return "invalid step '" + e.Value + "': " + e.Reason
+}
+
+// Step parsing constants
+const (
+	MinStep = time.Minute // 1 minute minimum
+	MaxStep = time.Hour   // 1 hour maximum
+)
+
+// parseStep parses and validates the step parameter
+func parseStep(s string) (time.Duration, error) {
+	if s == "" {
+		return 0, nil // No step = raw data
+	}
+
+	interval, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, &InvalidStepError{Value: s, Reason: "invalid format"}
+	}
+
+	if interval < MinStep {
+		return 0, &InvalidStepError{Value: s, Reason: "minimum step is 1m"}
+	}
+
+	if interval > MaxStep {
+		return 0, &InvalidStepError{Value: s, Reason: "maximum step is 1h"}
+	}
+
+	return interval, nil
 }
 
 // toSeriesDataDTO converts SeriesData to SeriesDataDTO

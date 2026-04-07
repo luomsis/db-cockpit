@@ -30,8 +30,11 @@ type DataQueryService interface {
 	// GetInstanceByEndpoint retrieves instance metadata by endpoint
 	GetInstanceByEndpoint(ctx context.Context, endpoint string) (*InstanceMeta, error)
 
-	// GetAllInstances retrieves all instance metadata
-	GetAllInstances(ctx context.Context) ([]*InstanceMeta, error)
+	// GetAllInstances retrieves instance metadata with pagination
+	GetAllInstances(ctx context.Context, req *InstancesQueryRequest) (*InstancesListResponse, error)
+
+	// GetAlertsByEndpoint retrieves all alerts for a specific endpoint
+	GetAlertsByEndpoint(ctx context.Context, endpoint string) ([]*Alert, error)
 }
 
 // Service implements DataQueryService
@@ -98,10 +101,11 @@ func (s *Service) QuerySeries(ctx context.Context, req *SeriesQuery) ([]*SeriesD
 		seriesIDs[i] = meta.ID
 	}
 
-	// Get data points
+	// Get data points with interval
 	pointsMap, err := s.repo.GetSeriesPoints(ctx, &PointsQueryRequest{
 		SeriesIDs: seriesIDs,
 		TimeRange: req.TimeRange,
+		Interval:  req.Interval,
 	})
 	if err != nil {
 		return nil, err
@@ -126,43 +130,78 @@ func (s *Service) QuerySeries(ctx context.Context, req *SeriesQuery) ([]*SeriesD
 func (s *Service) QuerySeriesMulti(ctx context.Context, req *MultiSeriesQuery) ([]*SeriesData, error) {
 	// Build series query request
 	queryReq := &SeriesQueryRequest{
-		TimeRange: req.TimeRange,
+		TimeRange:   req.TimeRange,
+		LabelFilter: req.LabelFilter,
 	}
 
-	// Query series for each endpoint/metric combination
-	var allSeries []SeriesMeta
-	if len(req.Endpoints) > 0 || len(req.Metrics) > 0 {
+	// Use a map to deduplicate series by ID
+	seriesMap := make(map[int64]SeriesMeta)
+
+	if len(req.Endpoints) > 0 && len(req.Metrics) > 0 {
+		// Query for each endpoint/metric combination
 		for _, endpoint := range req.Endpoints {
 			for _, metric := range req.Metrics {
 				queryReq.Endpoint = endpoint
 				queryReq.Metric = metric
-				queryReq.LabelFilter = req.LabelFilter
 
 				series, err := s.repo.QuerySeries(ctx, queryReq)
 				if err != nil {
 					return nil, err
 				}
-				allSeries = append(allSeries, series...)
+				for _, s := range series {
+					seriesMap[s.ID] = s
+				}
+			}
+		}
+	} else if len(req.Endpoints) > 0 {
+		// Query by endpoints only
+		for _, endpoint := range req.Endpoints {
+			queryReq.Endpoint = endpoint
+			queryReq.Metric = ""
+
+			series, err := s.repo.QuerySeries(ctx, queryReq)
+			if err != nil {
+				return nil, err
+			}
+			for _, s := range series {
+				seriesMap[s.ID] = s
+			}
+		}
+	} else if len(req.Metrics) > 0 {
+		// Query by metrics only
+		queryReq.Endpoint = ""
+		for _, metric := range req.Metrics {
+			queryReq.Metric = metric
+
+			series, err := s.repo.QuerySeries(ctx, queryReq)
+			if err != nil {
+				return nil, err
+			}
+			for _, s := range series {
+				seriesMap[s.ID] = s
 			}
 		}
 	} else {
 		// No endpoint/metric specified, query all matching label filter
-		queryReq.LabelFilter = req.LabelFilter
 		series, err := s.repo.QuerySeries(ctx, queryReq)
 		if err != nil {
 			return nil, err
 		}
-		allSeries = series
+		for _, s := range series {
+			seriesMap[s.ID] = s
+		}
 	}
 
-	if len(allSeries) == 0 {
+	if len(seriesMap) == 0 {
 		return []*SeriesData{}, nil
 	}
 
-	// Extract series IDs
-	seriesIDs := make([]int64, len(allSeries))
-	for i, meta := range allSeries {
-		seriesIDs[i] = meta.ID
+	// Extract series IDs and convert map to slice
+	seriesIDs := make([]int64, 0, len(seriesMap))
+	allSeries := make([]SeriesMeta, 0, len(seriesMap))
+	for id, meta := range seriesMap {
+		seriesIDs = append(seriesIDs, id)
+		allSeries = append(allSeries, meta)
 	}
 
 	// Get data points
@@ -233,7 +272,30 @@ func (s *Service) GetInstanceByEndpoint(ctx context.Context, endpoint string) (*
 	return s.repo.GetInstanceByEndpoint(ctx, endpoint)
 }
 
-// GetAllInstances retrieves all instance metadata
-func (s *Service) GetAllInstances(ctx context.Context) ([]*InstanceMeta, error) {
-	return s.repo.GetAllInstances(ctx)
+// GetAllInstances retrieves instance metadata with pagination
+func (s *Service) GetAllInstances(ctx context.Context, req *InstancesQueryRequest) (*InstancesListResponse, error) {
+	instances, totalCount, err := s.repo.GetAllInstances(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	totalPages := int(totalCount) / req.Pagination.PageSize
+	if int(totalCount) % req.Pagination.PageSize > 0 {
+		totalPages++
+	}
+
+	return &InstancesListResponse{
+		Data: instances,
+		Pagination: &PaginationMeta{
+			TotalCount:  totalCount,
+			TotalPages:  totalPages,
+			CurrentPage: req.Pagination.Page,
+			PageSize:    req.Pagination.PageSize,
+		},
+	}, nil
+}
+
+// GetAlertsByEndpoint retrieves all alerts for a specific endpoint
+func (s *Service) GetAlertsByEndpoint(ctx context.Context, endpoint string) ([]*Alert, error) {
+	return s.repo.GetAlertsByEndpoint(ctx, endpoint)
 }

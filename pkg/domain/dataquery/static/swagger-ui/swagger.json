@@ -208,7 +208,7 @@
         },
         "/series": {
             "get": {
-                "description": "Query time series data with optional filters",
+                "description": "Query time series data with optional filters and sampling",
                 "produces": [
                     "application/json"
                 ],

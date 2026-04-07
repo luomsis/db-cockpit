@@ -133,6 +133,9 @@ func main() {
 		api.GET("/instances/:endpoint", func(c context.Context, ctx *app.RequestContext) {
 			handler.GetInstance(c, ctx)
 		})
+		api.GET("/alerts/:endpoint", func(c context.Context, ctx *app.RequestContext) {
+			handler.GetAlerts(c, ctx)
+		})
 	}
 
 	// Health check endpoint
@@ -188,6 +191,7 @@ func printEndpoints(addr string) {
 	fmt.Printf("  POST http://%s/api/v1/series/query\n", addr)
 	fmt.Printf("  GET  http://%s/api/v1/instances\n", addr)
 	fmt.Printf("  GET  http://%s/api/v1/instances/:endpoint\n", addr)
+	fmt.Printf("  GET  http://%s/api/v1/alerts/:endpoint\n", addr)
 	fmt.Printf("  GET  http://%s/health\n", addr)
 	fmt.Printf("\n📖 Swagger UI: http://%s/swagger/index.html\n", addr)
 	fmt.Println("\n📝 Example REST API Requests:")
@@ -219,6 +223,9 @@ func printEndpoints(addr string) {
 
   # Get instance metadata by endpoint
   curl http://localhost:8084/api/v1/instances/mysql-cn-east-1-finance-order-01
+
+  # Get alerts by endpoint
+  curl http://localhost:8084/api/v1/alerts/pg-cn-north-2-ecom-user-01
 `)
 	fmt.Println("\n========================================")
 }

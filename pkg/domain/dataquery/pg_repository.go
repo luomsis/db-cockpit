@@ -140,6 +140,9 @@ func (r *PGRepository) GetSeriesByID(ctx context.Context, id int64) (*SeriesMeta
 		FROM series_meta WHERE id = $1
 	`, id).Scan(&s.ID, &s.Endpoint, &s.Metric, &labelsJSON, &s.LabelsHash, &s.CreatedAt)
 	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil // Not found - return nil without error
+		}
 		return nil, fmt.Errorf("failed to get series by ID: %w", err)
 	}
 	if err := json.Unmarshal(labelsJSON, &s.Labels); err != nil {
@@ -148,19 +151,39 @@ func (r *PGRepository) GetSeriesByID(ctx context.Context, id int64) (*SeriesMeta
 	return &s, nil
 }
 
-// GetSeriesPoints retrieves data points for multiple series
+// GetSeriesPoints retrieves data points for multiple series with optional sampling
 func (r *PGRepository) GetSeriesPoints(ctx context.Context, req *PointsQueryRequest) (map[int64][]DataPoint, error) {
 	if len(req.SeriesIDs) == 0 {
 		return map[int64][]DataPoint{}, nil
 	}
 
-	rows, err := r.pool.Query(ctx, `
-		SELECT series_id, "time", value
-		FROM series_points
-		WHERE series_id = ANY($1)
-		  AND "time" >= $2 AND "time" <= $3
-		ORDER BY series_id, "time"
-	`, req.SeriesIDs, req.TimeRange.Start, req.TimeRange.End)
+	var rows pgx.Rows
+	var err error
+
+	if req.Interval > 0 {
+		// With sampling using time_bucket
+		intervalStr := fmt.Sprintf("%d milliseconds", req.Interval.Milliseconds())
+		query := `
+			SELECT series_id, time_bucket($4, "time") AS bucket_time, AVG(value) AS avg_value
+			FROM series_points
+			WHERE series_id = ANY($1)
+			  AND "time" >= $2 AND "time" <= $3
+			GROUP BY series_id, bucket_time
+			ORDER BY series_id, bucket_time
+		`
+		rows, err = r.pool.Query(ctx, query, req.SeriesIDs, req.TimeRange.Start, req.TimeRange.End, intervalStr)
+	} else {
+		// Without sampling - raw data
+		query := `
+			SELECT series_id, "time", value
+			FROM series_points
+			WHERE series_id = ANY($1)
+			  AND "time" >= $2 AND "time" <= $3
+			ORDER BY series_id, "time"
+		`
+		rows, err = r.pool.Query(ctx, query, req.SeriesIDs, req.TimeRange.Start, req.TimeRange.End)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to query points: %w", err)
 	}
@@ -170,8 +193,16 @@ func (r *PGRepository) GetSeriesPoints(ctx context.Context, req *PointsQueryRequ
 	for rows.Next() {
 		var seriesID int64
 		var point DataPoint
-		if err := rows.Scan(&seriesID, &point.Time, &point.Value); err != nil {
-			return nil, fmt.Errorf("failed to scan point: %w", err)
+		if req.Interval > 0 {
+			var avgValue float64
+			if err := rows.Scan(&seriesID, &point.Time, &avgValue); err != nil {
+				return nil, fmt.Errorf("failed to scan point: %w", err)
+			}
+			point.Value = avgValue
+		} else {
+			if err := rows.Scan(&seriesID, &point.Time, &point.Value); err != nil {
+				return nil, fmt.Errorf("failed to scan point: %w", err)
+			}
 		}
 		result[seriesID] = append(result[seriesID], point)
 	}
@@ -217,8 +248,6 @@ func nullIfEmpty(s string) interface{} {
 	}
 	return s
 }
-
-// stringsToUpper is not used, removing
 
 // InsertSeriesMeta inserts a new series metadata record
 func (r *PGRepository) InsertSeriesMeta(ctx context.Context, endpoint, metric string, lbls map[string]string) (*SeriesMeta, error) {
@@ -317,11 +346,8 @@ func (r *PGRepository) EnsureTables(ctx context.Context) error {
 	return nil
 }
 
-// GetInstanceByEndpoint retrieves instance metadata by endpoint
-func (r *PGRepository) GetInstanceByEndpoint(ctx context.Context, endpoint string) (*InstanceMeta, error) {
-	var instance InstanceMeta
-	err := r.pool.QueryRow(ctx, `
-		SELECT id, db_type, entity_name, chinese_desc, org_code, service_user, opr_dba,
+// instanceMetaColumns is the list of columns for instance_meta table
+const instanceMetaColumns = `id, db_type, entity_name, chinese_desc, org_code, service_user, opr_dba,
 			   business_owner, alert_subscriber, infra_type, req_cpu, req_memory_gb,
 			   req_storage_gb, created_date, environment, opr_dba_ii, ins_created_date,
 			   ins_updated_date, host_environment1, host_environment2, le_name,
@@ -329,10 +355,14 @@ func (r *PGRepository) GetInstanceByEndpoint(ctx context.Context, endpoint strin
 			   host_name2, default_role, "role", status, version_detail, instance_name,
 			   is_created_by_cloud, character_set, instance_vip, instance_port, user_name,
 			   host_ip1, host_infra_type1, os_name, host_ip2, host_infra_type2,
-			   ha_type, backup_method, failover_type, ins_uuid, ccm_name
-		FROM instance_meta
-		WHERE instance_endpoint = $1
-	`, endpoint).Scan(
+			   ha_type, backup_method, failover_type, ins_uuid, ccm_name`
+
+// scanInstanceMeta scans a single InstanceMeta from a row
+func scanInstanceMeta(scanner interface {
+	Scan(dest ...interface{}) error
+}) (*InstanceMeta, error) {
+	var instance InstanceMeta
+	err := scanner.Scan(
 		&instance.ID, &instance.DbType, &instance.EntityName, &instance.ChineseDesc,
 		&instance.OrgCode, &instance.ServiceUser, &instance.OprDba, &instance.BusinessOwner,
 		&instance.AlertSubscriber, &instance.InfraType, &instance.ReqCPU, &instance.ReqMemoryGB,
@@ -348,60 +378,93 @@ func (r *PGRepository) GetInstanceByEndpoint(ctx context.Context, endpoint strin
 		&instance.InsUUID, &instance.CcmName,
 	)
 	if err != nil {
+		return nil, err
+	}
+	return &instance, nil
+}
+
+// GetInstanceByEndpoint retrieves instance metadata by endpoint
+func (r *PGRepository) GetInstanceByEndpoint(ctx context.Context, endpoint string) (*InstanceMeta, error) {
+	instance, err := scanInstanceMeta(r.pool.QueryRow(ctx, `
+		SELECT `+instanceMetaColumns+`
+		FROM instance_meta
+		WHERE instance_endpoint = $1
+	`, endpoint))
+	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get instance by endpoint: %w", err)
 	}
-	return &instance, nil
+	return instance, nil
 }
 
-// GetAllInstances retrieves all instance metadata
-func (r *PGRepository) GetAllInstances(ctx context.Context) ([]*InstanceMeta, error) {
+// GetAllInstances retrieves instance metadata with pagination
+func (r *PGRepository) GetAllInstances(ctx context.Context, req *InstancesQueryRequest) ([]*InstanceMeta, int64, error) {
+	// Get total count
+	var totalCount int64
+	err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM instance_meta`).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count instances: %w", err)
+	}
+
+	// Calculate offset
+	offset := (req.Pagination.Page - 1) * req.Pagination.PageSize
+
+	// Query with pagination
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, db_type, entity_name, chinese_desc, org_code, service_user, opr_dba,
-			   business_owner, alert_subscriber, infra_type, req_cpu, req_memory_gb,
-			   req_storage_gb, created_date, environment, opr_dba_ii, ins_created_date,
-			   ins_updated_date, host_environment1, host_environment2, le_name,
-			   instance_endpoint, subsys_code, source_sys, attach_db, host_namel,
-			   host_name2, default_role, "role", status, version_detail, instance_name,
-			   is_created_by_cloud, character_set, instance_vip, instance_port, user_name,
-			   host_ip1, host_infra_type1, os_name, host_ip2, host_infra_type2,
-			   ha_type, backup_method, failover_type, ins_uuid, ccm_name
+		SELECT `+instanceMetaColumns+`
 		FROM instance_meta
 		ORDER BY instance_endpoint
-	`)
+		LIMIT $1 OFFSET $2
+	`, req.Pagination.PageSize, offset)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query all instances: %w", err)
+		return nil, 0, fmt.Errorf("failed to query all instances: %w", err)
 	}
 	defer rows.Close()
 
 	var instances []*InstanceMeta
 	for rows.Next() {
-		var instance InstanceMeta
-		err := rows.Scan(
-			&instance.ID, &instance.DbType, &instance.EntityName, &instance.ChineseDesc,
-			&instance.OrgCode, &instance.ServiceUser, &instance.OprDba, &instance.BusinessOwner,
-			&instance.AlertSubscriber, &instance.InfraType, &instance.ReqCPU, &instance.ReqMemoryGB,
-			&instance.ReqStorageGB, &instance.CreatedDate, &instance.Environment, &instance.OprDbaII,
-			&instance.InsCreatedDate, &instance.InsUpdatedDate, &instance.HostEnvironment1,
-			&instance.HostEnvironment2, &instance.LeName, &instance.InstanceEndpoint,
-			&instance.SubsysCode, &instance.SourceSys, &instance.AttachDb, &instance.HostNamel,
-			&instance.HostName2, &instance.DefaultRole, &instance.Role, &instance.Status,
-			&instance.VersionDetail, &instance.InstanceName, &instance.IsCreatedByCloud,
-			&instance.CharacterSet, &instance.InstanceVip, &instance.InstancePort, &instance.UserName,
-			&instance.HostIP1, &instance.HostInfraType1, &instance.OsName, &instance.HostIP2,
-			&instance.HostInfraType2, &instance.HaType, &instance.BackupMethod, &instance.FailoverType,
-			&instance.InsUUID, &instance.CcmName,
-		)
+		instance, err := scanInstanceMeta(rows)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan instance: %w", err)
+			return nil, 0, fmt.Errorf("failed to scan instance: %w", err)
 		}
-		instances = append(instances, &instance)
+		instances = append(instances, instance)
 	}
 
 	if instances == nil {
 		instances = []*InstanceMeta{}
 	}
-	return instances, nil
+	return instances, totalCount, nil
+}
+
+// GetAlertsByEndpoint retrieves all alerts for a specific endpoint
+func (r *PGRepository) GetAlertsByEndpoint(ctx context.Context, endpoint string) ([]*Alert, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, event_id, endpoint, alert_text, start_time, end_time, metric, status
+		FROM public.alert
+		WHERE endpoint = $1
+		ORDER BY start_time DESC
+	`, endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query alerts: %w", err)
+	}
+	defer rows.Close()
+
+	var alerts []*Alert
+	for rows.Next() {
+		var alert Alert
+		if err := rows.Scan(
+			&alert.ID, &alert.EventID, &alert.Endpoint, &alert.AlertText,
+			&alert.StartTime, &alert.EndTime, &alert.Metric, &alert.Status,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan alert: %w", err)
+		}
+		alerts = append(alerts, &alert)
+	}
+
+	if alerts == nil {
+		alerts = []*Alert{}
+	}
+	return alerts, nil
 }

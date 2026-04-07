@@ -27,6 +27,10 @@ type Repository interface {
 	// GetInstanceByEndpoint retrieves instance metadata by endpoint
 	GetInstanceByEndpoint(ctx context.Context, endpoint string) (*InstanceMeta, error)
 
-	// GetAllInstances retrieves all instance metadata
-	GetAllInstances(ctx context.Context) ([]*InstanceMeta, error)
+	// GetAllInstances retrieves instance metadata with pagination
+	// Returns instances slice and total count
+	GetAllInstances(ctx context.Context, req *InstancesQueryRequest) ([]*InstanceMeta, int64, error)
+
+	// GetAlertsByEndpoint retrieves all alerts for a specific endpoint
+	GetAlertsByEndpoint(ctx context.Context, endpoint string) ([]*Alert, error)
 }
