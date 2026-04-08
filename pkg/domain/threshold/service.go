@@ -1,5 +1,10 @@
 package threshold
 
+// Dynamic Threshold Domain Service
+// Status: Interface defined, basic implementation exists
+// Note: Repository is nil when used in Gateway, making this a stub.
+// Full implementation requires database repository.
+
 import (
 	"context"
 	"time"

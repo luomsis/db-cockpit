@@ -1,5 +1,10 @@
 package llm
 
+// LLM Orchestrator Domain Service
+// Status: Interface defined, basic implementation exists
+// Note: Repository and Provider are nil when used in Gateway, making this a stub.
+// Full implementation requires LLM provider client and vector database.
+
 import (
 	"context"
 	"time"
