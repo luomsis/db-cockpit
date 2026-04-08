@@ -12,8 +12,8 @@ import (
 	"github.com/db-cockpit/pkg/domain/threshold"
 )
 
-// GatewayHandler handles gateway requests
-// Note: Data Query operations are handled via GraphQL, not REST
+// GatewayHandler handles gateway requests for domain services
+// Note: Data Query operations are proxied to Data Query Service REST API
 type GatewayHandler struct {
 	sqlGovern   sqlgovernance.SQLGovernanceService
 	performance performance.PerformanceService
