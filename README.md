@@ -486,7 +486,6 @@ See `configs/config.yaml` for all configuration options.
 
 | Document | Date | Description |
 |----------|------|-------------|
-| [DataQuery GraphQL Design](docs/superpowers/specs/2024-03-20-dataquery-graphql-design.md) | 2024-03-20 | GraphQL query interface design |
 | [Monitoring Dashboard Design](docs/superpowers/specs/2026-03-22-monitoring-dashboard-design.md) | 2026-03-22 | Frontend monitoring dashboard design |
 | [DataQuery REST API Design](docs/superpowers/specs/2026-03-25-dataquery-rest-api-design.md) | 2026-03-25 | REST API design for DataQuery service |
 
