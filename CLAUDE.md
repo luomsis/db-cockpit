@@ -50,6 +50,16 @@ The system follows a specific communication pattern:
 
 **Key insight**: Data Query Service exposes a REST API with Swagger documentation. Other domain services use REST through the Gateway.
 
+## Data Layer Status
+
+The following data layer components are defined but not actively used:
+- Neo4j (Graph Store) - client defined, not connected
+- pgvector (Vector Store) - client defined, not connected
+- PGMQ (Message Queue) - client defined, not connected
+- Redis (Cache) - client defined, not connected
+
+Only TimescaleDB is actively used by Data Query Service.
+
 ## Domain Service Pattern
 
 Every domain service in `pkg/domain/<name>/` follows this structure:
@@ -85,7 +95,7 @@ Data Query Service provides a REST API for time-series queries:
 | `/api/v1/series/query` | POST | Complex query with JSON body |
 | `/api/v1/instances` | GET | Get all instances with pagination |
 | `/api/v1/instances/:endpoint` | GET | Get instance by endpoint |
-| `/api/v1/alerts/:endpoint` | GET | Get alerts for an endpoint |
+| `/api/v1/alerts` | GET | Get alerts with optional filters (endpoint, alert_text, start, end, metric, status) |
 | `/swagger/index.html` | GET | Swagger UI documentation |
 
 **Handler**: `pkg/domain/dataquery/handler.go`
@@ -188,17 +198,81 @@ go test ./test/integration/... -v
 
 **IMPORTANT**: Integration tests use the existing `postgres` database, NOT a separate `cockpit` database.
 
-Database connection for integration tests:
-- Host: `localhost:5432`
-- User: `postgres`
-- Password: `postgres`
-- Database: `postgres`
+#### Docker 容器
 
-The `postgres` database already contains the required tables (`series_meta`, `series_points`, etc.) and test data. Do NOT create a new database for integration tests.
+集成测试依赖本地 Docker 容器运行的 TimescaleDB：
 
-Connection command:
+```bash
+# 查看容器状态
+docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
+
+# 容器名称: db-cockpit-postgres
+# 镜像: timescale/timescaledb:latest-pg16
+# 端口: 5432
+```
+
+#### 数据库连接信息
+
+| 参数 | 值 |
+|------|-----|
+| Host | `localhost:5432` |
+| User | `postgres` |
+| Password | `postgres` |
+| Database | `postgres` |
+
+连接命令：
 ```bash
 PGPASSWORD=postgres psql -h localhost -U postgres -d postgres
+```
+
+#### 测试数据表
+
+`postgres` 数据库包含以下测试数据表：
+
+| 表名 | 说明 |
+|------|------|
+| `public.alert` | 告警事件表，包含 endpoint、alert_text、start_time、end_time、metric、status 等字段 |
+| `public.slow_query` | 慢查询记录表 |
+| `public.instance_meta` | 实例元数据表 |
+| `public.series_meta` | 时序元数据表 |
+| `public.series_points` | 时序数据点表 |
+
+#### 运行集成测试
+
+```bash
+# 1. 确保 Docker 容器运行
+docker ps | grep db-cockpit-postgres
+
+# 2. 确保 Data Query Service 运行
+curl http://localhost:8084/health
+
+# 3. 运行集成测试
+go test ./test/integration/... -v
+
+# 4. 运行特定测试
+go test ./test/integration/... -v -run TestDataQueryHTTP_GetAlerts
+```
+
+#### 手动 API 测试示例
+
+```bash
+# 获取所有告警
+curl "http://localhost:8084/api/v1/alerts"
+
+# 按 endpoint 过滤
+curl "http://localhost:8084/api/v1/alerts?endpoint=pg-cn-north-2-ecom-user-01"
+
+# 按 status 过滤
+curl "http://localhost:8084/api/v1/alerts?status=firing"
+
+# 按 metric 过滤
+curl "http://localhost:8084/api/v1/alerts?metric=cpu_usage_percent"
+
+# 按时间范围过滤
+curl "http://localhost:8084/api/v1/alerts?start=2025-04-01T00:00:00Z&end=2025-04-03T00:00:00Z"
+
+# 组合过滤
+curl "http://localhost:8084/api/v1/alerts?status=firing&metric=cpu_usage_percent&page=1&page_size=10"
 ```
 
 ### Mock Services
@@ -241,8 +315,24 @@ When adding or modifying API endpoints in the Data Query Service:
 
 1. Update handler with swagger annotations (@Summary, @Description, @Tags, @Router, etc.)
 2. Update `docs/swagger.json` with new endpoint path and response definitions
-3. Run tests: `go test ./pkg/domain/dataquery/... -v`
-4. Verify Swagger UI at `/swagger/index.html` displays the new endpoint
+3. **同步嵌入的 Swagger 文件**: 复制 `docs/swagger.json` 到 `pkg/domain/dataquery/static/swagger-ui/swagger.json`
+   ```bash
+   cp docs/swagger.json pkg/domain/dataquery/static/swagger-ui/swagger.json
+   ```
+   > **重要**: Swagger UI 从嵌入的静态文件加载，不是从 `docs/swagger.json` 动态读取。
+   > 忘记同步会导致新接口在 Swagger UI 中不可见。
+4. Run tests: `go test ./pkg/domain/dataquery/... -v`
+5. Restart service to load embedded files
+6. Verify Swagger UI at `/swagger/index.html` displays the new endpoint
+
+### Swagger 文件位置说明
+
+| 文件 | 用途 |
+|------|------|
+| `docs/swagger.json` | 源文档，版本控制，文档参考 |
+| `pkg/domain/dataquery/static/swagger-ui/swagger.json` | 嵌入二进制的文件，服务运行时实际加载 |
+
+**两个文件必须保持同步！**
 
 ## Frontend
 
