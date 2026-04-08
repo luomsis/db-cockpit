@@ -481,7 +481,6 @@ See `configs/config.yaml` for all configuration options.
 | Document | Description |
 |----------|-------------|
 | [Architecture Diagram Prompt](docs/architecture-diagram-prompt.md) | Prompts for generating system architecture diagrams |
-| [GraphQL API Guide](docs/graphql-api-guide.md) | Legacy GraphQL API documentation (superseded by REST API) |
 
 ### Specifications
 
