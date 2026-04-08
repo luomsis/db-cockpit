@@ -26,7 +26,9 @@ type DataLayer struct {
 	Pool *pgxpool.Pool
 }
 
-// NewDataLayer creates a new DataLayer instance
+// NewDataLayer creates a new DataLayer instance.
+// Note: This returns an empty DataLayer. Use InitializeDataLayer for full setup.
+// Currently only TimescaleDB connection is actively used by Data Query Service.
 func NewDataLayer(cfg *config.Config) (*DataLayer, error) {
 	return &DataLayer{}, nil
 }
@@ -97,7 +99,10 @@ func (d *DataLayer) Health(ctx context.Context) map[string]string {
 	return status
 }
 
-// InitializeDataLayer initializes and connects all data layer components
+// InitializeDataLayer initializes and connects all data layer components.
+// Note: This function is defined for future use. Currently only TimescaleDB
+// pool is used by Data Query Service. Other components (Neo4j, Redis, PGMQ,
+// PgVector) are initialized but not actively used in the current implementation.
 func InitializeDataLayer(cfg *config.Config) (*DataLayer, error) {
 	dataLayer := &DataLayer{}
 
