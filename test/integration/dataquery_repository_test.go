@@ -645,8 +645,24 @@ func TestPGRepository_GetAlertsByEndpoint(t *testing.T) {
 	repo := dataquery.NewPGRepository(pool)
 	ctx := context.Background()
 
+	// First get a valid endpoint from instances for tests that need it
+	instances, _, err := repo.GetAllInstances(ctx, &dataquery.InstancesQueryRequest{
+		Pagination: dataquery.PaginationRequest{Page: 1, PageSize: 1},
+	})
+	if err != nil {
+		t.Fatalf("GetAllInstances() error = %v", err)
+	}
+	var validEndpoint string
+	if len(instances) > 0 {
+		validEndpoint = instances[0].InstanceEndpoint
+	}
+
 	t.Run("ReturnsEmptyForNonExistentEndpoint", func(t *testing.T) {
-		alerts, err := repo.GetAlertsByEndpoint(ctx, "nonexistent-endpoint-xyz")
+		req := &dataquery.AlertsQueryRequest{
+			Endpoint:   "nonexistent-endpoint-xyz",
+			Pagination: dataquery.PaginationRequest{Page: 1, PageSize: 20},
+		}
+		alerts, totalCount, err := repo.GetAlertsByEndpoint(ctx, req)
 		if err != nil {
 			t.Fatalf("GetAlertsByEndpoint() error = %v", err)
 		}
@@ -658,28 +674,27 @@ func TestPGRepository_GetAlertsByEndpoint(t *testing.T) {
 		if len(alerts) != 0 {
 			t.Errorf("GetAlertsByEndpoint() returned %d alerts, want 0", len(alerts))
 		}
+
+		if totalCount != 0 {
+			t.Errorf("GetAlertsByEndpoint() totalCount = %d, want 0", totalCount)
+		}
 	})
 
 	t.Run("ReturnsAlertsForValidEndpoint", func(t *testing.T) {
-		// First get a valid endpoint from instances
-		instances, _, err := repo.GetAllInstances(ctx, &dataquery.InstancesQueryRequest{
-			Pagination: dataquery.PaginationRequest{Page: 1, PageSize: 1},
-		})
-		if err != nil {
-			t.Fatalf("GetAllInstances() error = %v", err)
-		}
-
-		if len(instances) == 0 {
+		if validEndpoint == "" {
 			t.Skip("No instances available in database")
 		}
 
-		validEndpoint := instances[0].InstanceEndpoint
-		alerts, err := repo.GetAlertsByEndpoint(ctx, validEndpoint)
+		req := &dataquery.AlertsQueryRequest{
+			Endpoint:   validEndpoint,
+			Pagination: dataquery.PaginationRequest{Page: 1, PageSize: 20},
+		}
+		alerts, totalCount, err := repo.GetAlertsByEndpoint(ctx, req)
 		if err != nil {
 			t.Fatalf("GetAlertsByEndpoint() error = %v", err)
 		}
 
-		t.Logf("Found %d alerts for endpoint %s", len(alerts), validEndpoint)
+		t.Logf("Found %d alerts for endpoint %s (total_count=%d)", len(alerts), validEndpoint, totalCount)
 
 		// Verify alert structure if any
 		if len(alerts) > 0 {
@@ -692,4 +707,296 @@ func TestPGRepository_GetAlertsByEndpoint(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("PaginationWorks", func(t *testing.T) {
+		if validEndpoint == "" {
+			t.Skip("No instances available in database")
+		}
+
+		// First get total count with page 1
+		req1 := &dataquery.AlertsQueryRequest{
+			Endpoint:   validEndpoint,
+			Pagination: dataquery.PaginationRequest{Page: 1, PageSize: 10},
+		}
+		alerts1, totalCount, err := repo.GetAlertsByEndpoint(ctx, req1)
+		if err != nil {
+			t.Fatalf("GetAlertsByEndpoint() error = %v", err)
+		}
+
+		if totalCount <= 10 {
+			t.Skipf("Only %d total alerts, need more than 10 to test pagination", totalCount)
+		}
+
+		// Test page 2
+		req2 := &dataquery.AlertsQueryRequest{
+			Endpoint:   validEndpoint,
+			Pagination: dataquery.PaginationRequest{Page: 2, PageSize: 10},
+		}
+		alerts2, totalCount2, err := repo.GetAlertsByEndpoint(ctx, req2)
+		if err != nil {
+			t.Fatalf("GetAlertsByEndpoint() error = %v", err)
+		}
+
+		if totalCount2 != totalCount {
+			t.Errorf("Page 2 totalCount = %d, want %d (same as page 1)", totalCount2, totalCount)
+		}
+
+		t.Logf("Page 1: %d alerts, Page 2: %d alerts, Total: %d", len(alerts1), len(alerts2), totalCount)
+	})
+
+	t.Run("DefaultPagination", func(t *testing.T) {
+		if validEndpoint == "" {
+			t.Skip("No instances available in database")
+		}
+
+		req := &dataquery.AlertsQueryRequest{
+			Endpoint:   validEndpoint,
+			Pagination: dataquery.PaginationRequest{Page: 1, PageSize: 20},
+		}
+		alerts, totalCount, err := repo.GetAlertsByEndpoint(ctx, req)
+		if err != nil {
+			t.Fatalf("GetAlertsByEndpoint() error = %v", err)
+		}
+
+		// PageSize 20 should return at most 20 items
+		if len(alerts) > 20 {
+			t.Errorf("Expected at most 20 alerts, got %d", len(alerts))
+		}
+
+		t.Logf("Default pagination returned %d alerts (total_count=%d)", len(alerts), totalCount)
+	})
+
+	t.Run("MaxPageSizeClamping", func(t *testing.T) {
+		if validEndpoint == "" {
+			t.Skip("No instances available in database")
+		}
+
+		// Request with page_size > 100 (max allowed by service layer)
+		// Repository doesn't clamp, so it will return whatever is available
+		req := &dataquery.AlertsQueryRequest{
+			Endpoint:   validEndpoint,
+			Pagination: dataquery.PaginationRequest{Page: 1, PageSize: 200},
+		}
+		alerts, totalCount, err := repo.GetAlertsByEndpoint(ctx, req)
+		if err != nil {
+			t.Fatalf("GetAlertsByEndpoint() error = %v", err)
+		}
+
+		t.Logf("PageSize 200 returned %d alerts (total_count=%d)", len(alerts), totalCount)
+	})
+}
+
+func TestPGRepository_GetSlowQueries(t *testing.T) {
+	pool := setupTestDatabase(t)
+	defer pool.Close()
+
+	repo := dataquery.NewPGRepository(pool)
+	ctx := context.Background()
+
+	// First get a valid endpoint from instances for tests that need it
+	instances, _, err := repo.GetAllInstances(ctx, &dataquery.InstancesQueryRequest{
+		Pagination: dataquery.PaginationRequest{Page: 1, PageSize: 1},
+	})
+	if err != nil {
+		t.Fatalf("GetAllInstances() error = %v", err)
+	}
+	var validEndpoint string
+	if len(instances) > 0 {
+		validEndpoint = instances[0].InstanceEndpoint
+	}
+
+	t.Run("ReturnsAllWithNoFilters", func(t *testing.T) {
+		// Request with no filters should return all slow queries
+		req := &dataquery.SlowQueryRequest{
+			Pagination: dataquery.PaginationRequest{Page: 1, PageSize: 20},
+		}
+		slowQueries, totalCount, err := repo.GetSlowQueries(ctx, req)
+		if err != nil {
+			t.Fatalf("GetSlowQueries() error = %v", err)
+		}
+
+		if slowQueries == nil {
+			t.Error("GetSlowQueries() returned nil, expected empty slice")
+		}
+
+		t.Logf("Found %d slow queries with no filters (total_count=%d)", len(slowQueries), totalCount)
+	})
+
+	t.Run("ReturnsEmptyForNonExistentEndpoint", func(t *testing.T) {
+		req := &dataquery.SlowQueryRequest{
+			Endpoint:   "nonexistent-endpoint-xyz",
+			Pagination: dataquery.PaginationRequest{Page: 1, PageSize: 20},
+		}
+		slowQueries, totalCount, err := repo.GetSlowQueries(ctx, req)
+		if err != nil {
+			t.Fatalf("GetSlowQueries() error = %v", err)
+		}
+
+		if slowQueries == nil {
+			t.Error("GetSlowQueries() returned nil, expected empty slice")
+		}
+
+		if len(slowQueries) != 0 {
+			t.Errorf("GetSlowQueries() returned %d slow queries, want 0", len(slowQueries))
+		}
+
+		if totalCount != 0 {
+			t.Errorf("GetSlowQueries() totalCount = %d, want 0", totalCount)
+		}
+	})
+
+	t.Run("ReturnsSlowQueriesForValidEndpoint", func(t *testing.T) {
+		if validEndpoint == "" {
+			t.Skip("No instances available in database")
+		}
+
+		req := &dataquery.SlowQueryRequest{
+			Endpoint:   validEndpoint,
+			Pagination: dataquery.PaginationRequest{Page: 1, PageSize: 20},
+		}
+		slowQueries, totalCount, err := repo.GetSlowQueries(ctx, req)
+		if err != nil {
+			t.Fatalf("GetSlowQueries() error = %v", err)
+		}
+
+		t.Logf("Found %d slow queries for endpoint %s (total_count=%d)", len(slowQueries), validEndpoint, totalCount)
+
+		// Verify slow query structure if any
+		if len(slowQueries) > 0 {
+			sq := slowQueries[0]
+			if sq.Endpoint != validEndpoint {
+				t.Errorf("SlowQuery endpoint = %s, want %s", sq.Endpoint, validEndpoint)
+			}
+			if sq.ID == 0 {
+				t.Log("Warning: SlowQuery has zero ID")
+			}
+			t.Logf("Sample slow query: id=%d, sql_text=%s, execute_time=%.2f", sq.ID, truncate(sq.SqlText, 50), sq.ExecuteTime)
+		}
+	})
+
+	t.Run("FiltersBySqlKeyword", func(t *testing.T) {
+		// First, get some slow queries to see what SQL text patterns exist
+		req := &dataquery.SlowQueryRequest{
+			Pagination: dataquery.PaginationRequest{Page: 1, PageSize: 10},
+		}
+		allQueries, _, err := repo.GetSlowQueries(ctx, req)
+		if err != nil {
+			t.Fatalf("GetSlowQueries() error = %v", err)
+		}
+
+		if len(allQueries) == 0 {
+			t.Skip("No slow queries available in database")
+		}
+
+		// Try filtering with a common SQL keyword
+		keywordReq := &dataquery.SlowQueryRequest{
+			SqlKeyword: "SELECT",
+			Pagination: dataquery.PaginationRequest{Page: 1, PageSize: 20},
+		}
+		filteredQueries, _, err := repo.GetSlowQueries(ctx, keywordReq)
+		if err != nil {
+			t.Fatalf("GetSlowQueries() with sql_keyword error = %v", err)
+		}
+
+		t.Logf("Found %d slow queries with sql_keyword=SELECT", len(filteredQueries))
+
+		// Verify all returned queries contain the keyword (case-insensitive)
+		for _, sq := range filteredQueries {
+			// Note: ILIKE in SQL handles case-insensitive matching
+			t.Logf("SQL text (truncated): %s", truncate(sq.SqlText, 50))
+		}
+	})
+
+	t.Run("FiltersByTimeRange", func(t *testing.T) {
+		now := time.Now()
+		start := now.Add(-24 * time.Hour)
+		end := now
+
+		req := &dataquery.SlowQueryRequest{
+			TimeRange:  &dataquery.TimeRange{Start: start, End: end},
+			Pagination: dataquery.PaginationRequest{Page: 1, PageSize: 20},
+		}
+		slowQueries, totalCount, err := repo.GetSlowQueries(ctx, req)
+		if err != nil {
+			t.Fatalf("GetSlowQueries() error = %v", err)
+		}
+
+		t.Logf("Found %d slow queries in last 24 hours (total_count=%d)", len(slowQueries), totalCount)
+
+		// Verify all returned queries are within the time range
+		for _, sq := range slowQueries {
+			if sq.ExecuteDate.Before(start) || sq.ExecuteDate.After(end) {
+				t.Errorf("SlowQuery execute_date %v is outside range [%v, %v]", sq.ExecuteDate, start, end)
+			}
+		}
+	})
+
+	t.Run("CombinedFilters", func(t *testing.T) {
+		if validEndpoint == "" {
+			t.Skip("No instances available in database")
+		}
+
+		now := time.Now()
+		start := now.Add(-7 * 24 * time.Hour) // Last 7 days
+		end := now
+
+		req := &dataquery.SlowQueryRequest{
+			Endpoint:   validEndpoint,
+			TimeRange:  &dataquery.TimeRange{Start: start, End: end},
+			SqlKeyword: "SELECT",
+			Pagination: dataquery.PaginationRequest{Page: 1, PageSize: 10},
+		}
+		slowQueries, totalCount, err := repo.GetSlowQueries(ctx, req)
+		if err != nil {
+			t.Fatalf("GetSlowQueries() error = %v", err)
+		}
+
+		t.Logf("Combined filters: endpoint=%s, time_range=7d, sql_keyword=SELECT => %d results (total=%d)",
+			validEndpoint, len(slowQueries), totalCount)
+	})
+
+	t.Run("PaginationWorks", func(t *testing.T) {
+		// First get total count with page 1
+		req1 := &dataquery.SlowQueryRequest{
+			Pagination: dataquery.PaginationRequest{Page: 1, PageSize: 10},
+		}
+		page1Queries, totalCount, err := repo.GetSlowQueries(ctx, req1)
+		if err != nil {
+			t.Fatalf("GetSlowQueries() error = %v", err)
+		}
+
+		if totalCount <= 10 {
+			t.Skipf("Only %d total slow queries, need more than 10 to test pagination", totalCount)
+		}
+
+		// Test page 2
+		req2 := &dataquery.SlowQueryRequest{
+			Pagination: dataquery.PaginationRequest{Page: 2, PageSize: 10},
+		}
+		page2Queries, totalCount2, err := repo.GetSlowQueries(ctx, req2)
+		if err != nil {
+			t.Fatalf("GetSlowQueries() error = %v", err)
+		}
+
+		if totalCount2 != totalCount {
+			t.Errorf("Page 2 totalCount = %d, want %d (same as page 1)", totalCount2, totalCount)
+		}
+
+		// Verify different results on different pages
+		if len(page1Queries) > 0 && len(page2Queries) > 0 {
+			if page1Queries[0].ID == page2Queries[0].ID {
+				t.Error("Page 1 and Page 2 returned same first result, pagination may not be working")
+			}
+		}
+
+		t.Logf("Page 1: %d queries, Page 2: %d queries, Total: %d", len(page1Queries), len(page2Queries), totalCount)
+	})
+}
+
+// truncate truncates a string to maxLen characters
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }

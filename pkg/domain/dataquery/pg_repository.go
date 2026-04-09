@@ -351,7 +351,7 @@ const instanceMetaColumns = `id, db_type, entity_name, chinese_desc, org_code, s
 			   business_owner, alert_subscriber, infra_type, req_cpu, req_memory_gb,
 			   req_storage_gb, created_date, environment, opr_dba_ii, ins_created_date,
 			   ins_updated_date, host_environment1, host_environment2, le_name,
-			   instance_endpoint, subsys_code, source_sys, attach_db, host_namel,
+			   instance_endpoint, subsys_code, source_sys, attach_db, host_name1,
 			   host_name2, default_role, "role", status, version_detail, instance_name,
 			   is_created_by_cloud, character_set, instance_vip, instance_port, user_name,
 			   host_ip1, host_infra_type1, os_name, host_ip2, host_infra_type2,
@@ -369,7 +369,7 @@ func scanInstanceMeta(scanner interface {
 		&instance.ReqStorageGB, &instance.CreatedDate, &instance.Environment, &instance.OprDbaII,
 		&instance.InsCreatedDate, &instance.InsUpdatedDate, &instance.HostEnvironment1,
 		&instance.HostEnvironment2, &instance.LeName, &instance.InstanceEndpoint,
-		&instance.SubsysCode, &instance.SourceSys, &instance.AttachDb, &instance.HostNamel,
+		&instance.SubsysCode, &instance.SourceSys, &instance.AttachDb, &instance.HostName1,
 		&instance.HostName2, &instance.DefaultRole, &instance.Role, &instance.Status,
 		&instance.VersionDetail, &instance.InstanceName, &instance.IsCreatedByCloud,
 		&instance.CharacterSet, &instance.InstanceVip, &instance.InstancePort, &instance.UserName,
@@ -438,16 +438,81 @@ func (r *PGRepository) GetAllInstances(ctx context.Context, req *InstancesQueryR
 	return instances, totalCount, nil
 }
 
-// GetAlertsByEndpoint retrieves all alerts for a specific endpoint
-func (r *PGRepository) GetAlertsByEndpoint(ctx context.Context, endpoint string) ([]*Alert, error) {
-	rows, err := r.pool.Query(ctx, `
+// GetAlertsByEndpoint retrieves alerts with optional filters and pagination
+// Time overlap logic:
+// - Only start provided: alert.end_time >= start (alert active after start)
+// - Only end provided: alert.start_time <= end (alert started before end)
+// - Both provided: alert.start_time <= end AND alert.end_time >= start (time ranges overlap)
+func (r *PGRepository) GetAlertsByEndpoint(ctx context.Context, req *AlertsQueryRequest) ([]*Alert, int64, error) {
+	// Build dynamic WHERE clause
+	whereClause := "1=1"
+	args := []interface{}{}
+	argIndex := 1
+
+	// Add endpoint filter if provided
+	if req.Endpoint != "" {
+		whereClause += fmt.Sprintf(" AND endpoint = $%d", argIndex)
+		args = append(args, req.Endpoint)
+		argIndex++
+	}
+
+	// Add alert_text filter (case-insensitive LIKE)
+	if req.AlertText != "" {
+		whereClause += fmt.Sprintf(" AND alert_text ILIKE $%d", argIndex)
+		args = append(args, "%"+req.AlertText+"%")
+		argIndex++
+	}
+
+	// Add time overlap filters
+	if req.StartTime != nil {
+		whereClause += fmt.Sprintf(" AND end_time >= $%d", argIndex)
+		args = append(args, *req.StartTime)
+		argIndex++
+	}
+	if req.EndTime != nil {
+		whereClause += fmt.Sprintf(" AND start_time <= $%d", argIndex)
+		args = append(args, *req.EndTime)
+		argIndex++
+	}
+
+	// Add metric filter (exact match)
+	if req.Metric != "" {
+		whereClause += fmt.Sprintf(" AND metric = $%d", argIndex)
+		args = append(args, req.Metric)
+		argIndex++
+	}
+
+	// Add status filter (exact match)
+	if req.Status != "" {
+		whereClause += fmt.Sprintf(" AND status = $%d", argIndex)
+		args = append(args, req.Status)
+		argIndex++
+	}
+
+	// Get total count
+	var totalCount int64
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM public.alert WHERE %s", whereClause)
+	err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count alerts: %w", err)
+	}
+
+	// Calculate offset
+	offset := (req.Pagination.Page - 1) * req.Pagination.PageSize
+
+	// Query with pagination
+	query := fmt.Sprintf(`
 		SELECT id, event_id, endpoint, alert_text, start_time, end_time, metric, status
 		FROM public.alert
-		WHERE endpoint = $1
+		WHERE %s
 		ORDER BY start_time DESC
-	`, endpoint)
+		LIMIT $%d OFFSET $%d
+	`, whereClause, argIndex, argIndex+1)
+	args = append(args, req.Pagination.PageSize, offset)
+
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query alerts: %w", err)
+		return nil, 0, fmt.Errorf("failed to query alerts: %w", err)
 	}
 	defer rows.Close()
 
@@ -458,7 +523,7 @@ func (r *PGRepository) GetAlertsByEndpoint(ctx context.Context, endpoint string)
 			&alert.ID, &alert.EventID, &alert.Endpoint, &alert.AlertText,
 			&alert.StartTime, &alert.EndTime, &alert.Metric, &alert.Status,
 		); err != nil {
-			return nil, fmt.Errorf("failed to scan alert: %w", err)
+			return nil, 0, fmt.Errorf("failed to scan alert: %w", err)
 		}
 		alerts = append(alerts, &alert)
 	}
@@ -466,5 +531,78 @@ func (r *PGRepository) GetAlertsByEndpoint(ctx context.Context, endpoint string)
 	if alerts == nil {
 		alerts = []*Alert{}
 	}
-	return alerts, nil
+	return alerts, totalCount, nil
+}
+
+// GetSlowQueries retrieves slow queries with optional filters and pagination
+func (r *PGRepository) GetSlowQueries(ctx context.Context, req *SlowQueryRequest) ([]*SlowQuery, int64, error) {
+	// Build dynamic WHERE clause
+	whereClause := "1=1"
+	args := []interface{}{}
+	argIndex := 1
+
+	// Add endpoint filter if provided
+	if req.Endpoint != "" {
+		whereClause += fmt.Sprintf(" AND endpoint = $%d", argIndex)
+		args = append(args, req.Endpoint)
+		argIndex++
+	}
+
+	// Add time range filter if provided
+	if req.TimeRange != nil {
+		whereClause += fmt.Sprintf(" AND execute_date >= $%d AND execute_date <= $%d", argIndex, argIndex+1)
+		args = append(args, req.TimeRange.Start, req.TimeRange.End)
+		argIndex += 2
+	}
+
+	// Add SQL keyword filter if provided (case-insensitive LIKE)
+	if req.SqlKeyword != "" {
+		whereClause += fmt.Sprintf(" AND sql_text ILIKE $%d", argIndex)
+		args = append(args, "%"+req.SqlKeyword+"%")
+		argIndex++
+	}
+
+	// Get total count
+	var totalCount int64
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM public.slow_query WHERE %s", whereClause)
+	err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count slow queries: %w", err)
+	}
+
+	// Calculate offset
+	offset := (req.Pagination.Page - 1) * req.Pagination.PageSize
+
+	// Query with pagination
+	query := fmt.Sprintf(`
+		SELECT id, endpoint, hostname, port, database_name, username, sql_text, execute_time, execute_date
+		FROM public.slow_query
+		WHERE %s
+		ORDER BY execute_date DESC
+		LIMIT $%d OFFSET $%d
+	`, whereClause, argIndex, argIndex+1)
+	args = append(args, req.Pagination.PageSize, offset)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query slow queries: %w", err)
+	}
+	defer rows.Close()
+
+	var slowQueries []*SlowQuery
+	for rows.Next() {
+		var sq SlowQuery
+		if err := rows.Scan(
+			&sq.ID, &sq.Endpoint, &sq.Hostname, &sq.Port, &sq.DatabaseName,
+			&sq.Username, &sq.SqlText, &sq.ExecuteTime, &sq.ExecuteDate,
+		); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan slow query: %w", err)
+		}
+		slowQueries = append(slowQueries, &sq)
+	}
+
+	if slowQueries == nil {
+		slowQueries = []*SlowQuery{}
+	}
+	return slowQueries, totalCount, nil
 }

@@ -33,8 +33,11 @@ type DataQueryService interface {
 	// GetAllInstances retrieves instance metadata with pagination
 	GetAllInstances(ctx context.Context, req *InstancesQueryRequest) (*InstancesListResponse, error)
 
-	// GetAlertsByEndpoint retrieves all alerts for a specific endpoint
-	GetAlertsByEndpoint(ctx context.Context, endpoint string) ([]*Alert, error)
+	// GetAlertsByEndpoint retrieves alerts for a specific endpoint with pagination
+	GetAlertsByEndpoint(ctx context.Context, req *AlertsQueryRequest) (*AlertsListResponse, error)
+
+	// GetSlowQueries retrieves slow queries with optional filters and pagination
+	GetSlowQueries(ctx context.Context, req *SlowQueryRequest) (*SlowQueryResponse, error)
 }
 
 // Service implements DataQueryService
@@ -295,7 +298,54 @@ func (s *Service) GetAllInstances(ctx context.Context, req *InstancesQueryReques
 	}, nil
 }
 
-// GetAlertsByEndpoint retrieves all alerts for a specific endpoint
-func (s *Service) GetAlertsByEndpoint(ctx context.Context, endpoint string) ([]*Alert, error) {
-	return s.repo.GetAlertsByEndpoint(ctx, endpoint)
+// GetAlertsByEndpoint retrieves alerts for a specific endpoint with pagination
+func (s *Service) GetAlertsByEndpoint(ctx context.Context, req *AlertsQueryRequest) (*AlertsListResponse, error) {
+	alerts, totalCount, err := s.repo.GetAlertsByEndpoint(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	totalPages := int(totalCount) / req.Pagination.PageSize
+	if int(totalCount)%req.Pagination.PageSize > 0 {
+		totalPages++
+	}
+
+	return &AlertsListResponse{
+		Data: alerts,
+		Pagination: &PaginationMeta{
+			TotalCount:  totalCount,
+			TotalPages:  totalPages,
+			CurrentPage: req.Pagination.Page,
+			PageSize:    req.Pagination.PageSize,
+		},
+	}, nil
+}
+
+// GetSlowQueries retrieves slow queries with optional filters and pagination
+func (s *Service) GetSlowQueries(ctx context.Context, req *SlowQueryRequest) (*SlowQueryResponse, error) {
+	slowQueries, totalCount, err := s.repo.GetSlowQueries(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	totalPages := int(totalCount) / req.Pagination.PageSize
+	if int(totalCount)%req.Pagination.PageSize > 0 {
+		totalPages++
+	}
+
+	return &SlowQueryResponse{
+		Data: slowQueries,
+		Pagination: &PaginationMeta{
+			TotalCount:  totalCount,
+			TotalPages:  totalPages,
+			CurrentPage: req.Pagination.Page,
+			PageSize:    req.Pagination.PageSize,
+		},
+	}, nil
+}
+
+// SlowQueryResponse is the response for GetSlowQueries
+type SlowQueryResponse struct {
+	Data       []*SlowQuery    `json:"data"`
+	Pagination *PaginationMeta `json:"pagination"`
 }

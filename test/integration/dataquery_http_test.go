@@ -1153,7 +1153,7 @@ func TestDataQueryHTTP_GetInstance(t *testing.T) {
 }
 
 // ============================================================
-// GET /api/v1/alerts/:endpoint Tests
+// GET /api/v1/alerts Tests
 // ============================================================
 
 func TestDataQueryHTTP_GetAlerts(t *testing.T) {
@@ -1162,28 +1162,8 @@ func TestDataQueryHTTP_GetAlerts(t *testing.T) {
 		t.Skip("Data Query Service not running")
 	}
 
-	t.Run("Success_ReturnsAlertsForValidEndpoint", func(t *testing.T) {
-		// First get a valid endpoint from instances
-		instancesResp := makeHTTPRequest(t, "GET", baseURL+"/api/v1/instances?page_size=1", nil, nil)
-		if instancesResp.StatusCode != 200 {
-			t.Skip("Could not get instances")
-		}
-
-		var instancesResult struct {
-			Data []struct {
-				InstanceEndpoint string `json:"instance_endpoint"`
-			} `json:"data"`
-		}
-		if err := json.Unmarshal(instancesResp.Body, &instancesResult); err != nil {
-			t.Skip("Could not parse instances response")
-		}
-
-		if len(instancesResult.Data) == 0 {
-			t.Skip("No instances available")
-		}
-
-		validEndpoint := instancesResult.Data[0].InstanceEndpoint
-		url := baseURL + "/api/v1/alerts/" + validEndpoint
+	t.Run("Success_ReturnsAllAlertsWithDefaultPagination", func(t *testing.T) {
+		url := baseURL + "/api/v1/alerts"
 		resp := makeHTTPRequest(t, "GET", url, nil, nil)
 
 		if resp.StatusCode != 200 {
@@ -1191,36 +1171,378 @@ func TestDataQueryHTTP_GetAlerts(t *testing.T) {
 		}
 
 		var result struct {
-			Data []interface{} `json:"data"`
+			Data       []interface{} `json:"data"`
+			Pagination struct {
+				TotalCount  int64 `json:"total_count"`
+				TotalPages  int   `json:"total_pages"`
+				CurrentPage int   `json:"current_page"`
+				PageSize    int   `json:"page_size"`
+			} `json:"pagination"`
 		}
 		if err := json.Unmarshal(resp.Body, &result); err != nil {
 			t.Fatalf("Failed to parse response: %v", err)
 		}
 
-		// Alerts may be empty if no alerts for this endpoint
-		t.Logf("Found %d alerts for endpoint %s", len(result.Data), validEndpoint)
+		t.Logf("Found %d alerts (total_count=%d, page=%d, size=%d)",
+			len(result.Data), result.Pagination.TotalCount, result.Pagination.CurrentPage, result.Pagination.PageSize)
 	})
 
-	t.Run("Success_ReturnsEmptyListWhenNoAlerts", func(t *testing.T) {
-		// Use an endpoint that likely has no alerts
-		url := baseURL + "/api/v1/alerts/nonexistent-endpoint-no-alerts"
+	t.Run("Success_ReturnsAlertsWithEndpointFilter", func(t *testing.T) {
+		url := baseURL + "/api/v1/alerts?endpoint=mysql-cn-east-1-finance-order-01"
 		resp := makeHTTPRequest(t, "GET", url, nil, nil)
 
-		// Should return 200 with empty data (not an error)
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Logf("Alerts with endpoint filter returned status %d", resp.StatusCode)
+	})
+
+	t.Run("Success_ReturnsAlertsWithMetricFilter", func(t *testing.T) {
+		url := baseURL + "/api/v1/alerts?metric=cpu_usage"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Logf("Alerts with metric filter returned status %d", resp.StatusCode)
+	})
+
+	t.Run("Success_ReturnsAlertsWithStatusFilter", func(t *testing.T) {
+		url := baseURL + "/api/v1/alerts?status=firing"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Logf("Alerts with status filter returned status %d", resp.StatusCode)
+	})
+
+	t.Run("Success_ReturnsAlertsWithAlertTextFilter", func(t *testing.T) {
+		url := baseURL + "/api/v1/alerts?alert_text=connection"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Logf("Alerts with alert_text filter returned status %d", resp.StatusCode)
+	})
+
+	t.Run("Success_ReturnsAlertsWithTimeRange", func(t *testing.T) {
+		now := time.Now().UTC()
+		startTime := now.Add(-24 * time.Hour).Format(time.RFC3339)
+		endTime := now.Format(time.RFC3339)
+		url := baseURL + "/api/v1/alerts?start=" + startTime + "&end=" + endTime
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Logf("Alerts with time range filter returned status %d", resp.StatusCode)
+	})
+
+	t.Run("Success_ReturnsAlertsWithOnlyStartTime", func(t *testing.T) {
+		now := time.Now().UTC()
+		startTime := now.Add(-24 * time.Hour).Format(time.RFC3339)
+		url := baseURL + "/api/v1/alerts?start=" + startTime
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Logf("Alerts with only start time filter returned status %d", resp.StatusCode)
+	})
+
+	t.Run("Success_ReturnsAlertsWithOnlyEndTime", func(t *testing.T) {
+		now := time.Now().UTC()
+		endTime := now.Format(time.RFC3339)
+		url := baseURL + "/api/v1/alerts?end=" + endTime
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Logf("Alerts with only end time filter returned status %d", resp.StatusCode)
+	})
+
+	t.Run("Success_ReturnsAlertsWithUnixTimestampTimeRange", func(t *testing.T) {
+		now := time.Now().UTC()
+		startUnix := now.Add(-24 * time.Hour).Unix()
+		endUnix := now.Unix()
+		url := fmt.Sprintf("%s/api/v1/alerts?start=%d&end=%d", baseURL, startUnix, endUnix)
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Logf("Alerts with Unix timestamp time range returned status %d", resp.StatusCode)
+	})
+
+	t.Run("Success_AllFiltersCombined", func(t *testing.T) {
+		now := time.Now().UTC()
+		startTime := now.Add(-24 * time.Hour).Format(time.RFC3339)
+		endTime := now.Format(time.RFC3339)
+		url := baseURL + "/api/v1/alerts?endpoint=mysql-prod-01&alert_text=connection&metric=cpu_usage&status=firing&start=" + startTime + "&end=" + endTime + "&page=1&page_size=10"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var result struct {
+			Pagination struct {
+				CurrentPage int `json:"current_page"`
+				PageSize    int `json:"page_size"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(resp.Body, &result); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if result.Pagination.CurrentPage != 1 {
+			t.Errorf("Expected current_page=1, got %d", result.Pagination.CurrentPage)
+		}
+
+		if result.Pagination.PageSize != 10 {
+			t.Errorf("Expected page_size=10, got %d", result.Pagination.PageSize)
+		}
+
+		t.Logf("All filters combined returned status %d", resp.StatusCode)
+	})
+
+	t.Run("Success_ReturnsEmptyListWhenNoMatchingAlerts", func(t *testing.T) {
+		url := baseURL + "/api/v1/alerts?endpoint=nonexistent-endpoint-no-alerts"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
 		if resp.StatusCode != 200 {
 			t.Errorf("Expected status 200 for empty result, got %d", resp.StatusCode)
 		}
 
 		var result struct {
-			Data []interface{} `json:"data"`
+			Data       []interface{} `json:"data"`
+			Pagination struct {
+				TotalCount int64 `json:"total_count"`
+			} `json:"pagination"`
 		}
 		if err := json.Unmarshal(resp.Body, &result); err != nil {
 			t.Fatalf("Failed to parse response: %v", err)
 		}
 
-		if len(result.Data) != 0 {
-			t.Logf("Got %d alerts (expected 0)", len(result.Data))
+		if result.Pagination.TotalCount != 0 {
+			t.Errorf("Expected total_count=0, got %d", result.Pagination.TotalCount)
 		}
+	})
+
+	t.Run("Success_DefaultPagination", func(t *testing.T) {
+		url := baseURL + "/api/v1/alerts"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var result struct {
+			Pagination struct {
+				CurrentPage int `json:"current_page"`
+				PageSize    int `json:"page_size"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(resp.Body, &result); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if result.Pagination.CurrentPage != 1 {
+			t.Errorf("Expected current_page=1, got %d", result.Pagination.CurrentPage)
+		}
+		if result.Pagination.PageSize != 20 {
+			t.Errorf("Expected page_size=20, got %d", result.Pagination.PageSize)
+		}
+	})
+
+	t.Run("Success_CustomPagination", func(t *testing.T) {
+		url := baseURL + "/api/v1/alerts?page=2&page_size=10"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var result struct {
+			Pagination struct {
+				CurrentPage int `json:"current_page"`
+				PageSize    int `json:"page_size"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(resp.Body, &result); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if result.Pagination.CurrentPage != 2 {
+			t.Errorf("Expected current_page=2, got %d", result.Pagination.CurrentPage)
+		}
+		if result.Pagination.PageSize != 10 {
+			t.Errorf("Expected page_size=10, got %d", result.Pagination.PageSize)
+		}
+	})
+
+	t.Run("Boundary_PageSizeAtMax", func(t *testing.T) {
+		url := baseURL + "/api/v1/alerts?page_size=100"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var result struct {
+			Pagination struct {
+				PageSize int `json:"page_size"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(resp.Body, &result); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if result.Pagination.PageSize != 100 {
+			t.Errorf("Expected page_size=100, got %d", result.Pagination.PageSize)
+		}
+	})
+
+	t.Run("Boundary_PageSizeExceedsMax", func(t *testing.T) {
+		url := baseURL + "/api/v1/alerts?page_size=200"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var result struct {
+			Pagination struct {
+				PageSize int `json:"page_size"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(resp.Body, &result); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if result.Pagination.PageSize != 100 {
+			t.Errorf("Expected page_size to be clamped to 100, got %d", result.Pagination.PageSize)
+		}
+	})
+
+	t.Run("InvalidPage_IgnoresNegative", func(t *testing.T) {
+		url := baseURL + "/api/v1/alerts?page=-1"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var result struct {
+			Pagination struct {
+				CurrentPage int `json:"current_page"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(resp.Body, &result); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if result.Pagination.CurrentPage != 1 {
+			t.Errorf("Expected current_page to default to 1 for negative input, got %d", result.Pagination.CurrentPage)
+		}
+	})
+
+	t.Run("InvalidPage_IgnoresZero", func(t *testing.T) {
+		url := baseURL + "/api/v1/alerts?page=0"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var result struct {
+			Pagination struct {
+				CurrentPage int `json:"current_page"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(resp.Body, &result); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if result.Pagination.CurrentPage != 1 {
+			t.Errorf("Expected current_page to default to 1 for zero input, got %d", result.Pagination.CurrentPage)
+		}
+	})
+
+	t.Run("InvalidPage_IgnoresNonNumeric", func(t *testing.T) {
+		url := baseURL + "/api/v1/alerts?page=abc"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var result struct {
+			Pagination struct {
+				CurrentPage int `json:"current_page"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(resp.Body, &result); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if result.Pagination.CurrentPage != 1 {
+			t.Errorf("Expected current_page to default to 1 for non-numeric input, got %d", result.Pagination.CurrentPage)
+		}
+	})
+
+	t.Run("PaginationStructure", func(t *testing.T) {
+		url := baseURL + "/api/v1/alerts?page=1&page_size=10"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var result struct {
+			Data       []interface{} `json:"data"`
+			Pagination struct {
+				TotalCount  int64 `json:"total_count"`
+				TotalPages  int   `json:"total_pages"`
+				CurrentPage int   `json:"current_page"`
+				PageSize    int   `json:"page_size"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(resp.Body, &result); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if result.Pagination.TotalCount < 0 {
+			t.Errorf("total_count should be >= 0, got %d", result.Pagination.TotalCount)
+		}
+		if result.Pagination.TotalPages < 0 {
+			t.Errorf("total_pages should be >= 0, got %d", result.Pagination.TotalPages)
+		}
+		if result.Pagination.CurrentPage != 1 {
+			t.Errorf("current_page should be 1, got %d", result.Pagination.CurrentPage)
+		}
+		if result.Pagination.PageSize != 10 {
+			t.Errorf("page_size should be 10, got %d", result.Pagination.PageSize)
+		}
+
+		if result.Data == nil {
+			t.Error("data should be an array, not nil")
+		}
+
+		t.Logf("Pagination structure verified: total_count=%d, total_pages=%d, current_page=%d, page_size=%d",
+			result.Pagination.TotalCount, result.Pagination.TotalPages,
+			result.Pagination.CurrentPage, result.Pagination.PageSize)
 	})
 }
 
@@ -1866,7 +2188,7 @@ func TestDataQueryHTTP_SpecialCharactersInEndpoint(t *testing.T) {
 
 	t.Run("AlertsEndpointWithSpecialChars", func(t *testing.T) {
 		// Test alerts endpoint with special characters
-		url := baseURL + "/api/v1/alerts/mysql-cn-east-1-finance-order-01"
+		url := baseURL + "/api/v1/alerts?endpoint=mysql-cn-east-1-finance-order-01"
 
 		resp := makeHTTPRequest(t, "GET", url, nil, nil)
 
@@ -1888,5 +2210,289 @@ func TestDataQueryHTTP_SpecialCharactersInEndpoint(t *testing.T) {
 		}
 
 		t.Logf("Metrics query with special chars returned status %d", resp.StatusCode)
+	})
+}
+
+// ============================================================
+// GET /api/v1/slow-queries Tests
+// ============================================================
+
+func TestDataQueryHTTP_GetSlowQueries(t *testing.T) {
+	baseURL := getTestServiceURL()
+	if !checkServiceAvailable(t, baseURL) {
+		t.Skip("Data Query Service not running")
+	}
+
+	t.Run("Success_NoFilters", func(t *testing.T) {
+		url := baseURL + "/api/v1/slow-queries"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		// Should return 200 (all params are optional now)
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Logf("No filters request succeeded")
+	})
+
+	t.Run("Success_WithEndpoint", func(t *testing.T) {
+		url := baseURL + "/api/v1/slow-queries?endpoint=pg-cn-north-2-ecom-user-02"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		// Should return 200
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Logf("With endpoint filter request succeeded")
+	})
+
+	t.Run("Success_ReturnsEmptyForNonExistentEndpoint", func(t *testing.T) {
+		url := baseURL + "/api/v1/slow-queries?endpoint=nonexistent-endpoint-12345"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		// Should return 200 with empty data (not an error)
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200 for empty result, got %d", resp.StatusCode)
+		}
+
+		var result struct {
+			Data       []interface{} `json:"data"`
+			Pagination struct {
+				TotalCount int64 `json:"total_count"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(resp.Body, &result); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if len(result.Data) != 0 {
+			t.Logf("Got %d results (expected 0 for non-existent endpoint)", len(result.Data))
+		}
+
+		if result.Pagination.TotalCount != 0 {
+			t.Errorf("Expected total_count=0, got %d", result.Pagination.TotalCount)
+		}
+	})
+
+	t.Run("Success_PaginationWorks", func(t *testing.T) {
+		url := baseURL + "/api/v1/slow-queries?page=2&page_size=10"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var result struct {
+			Pagination struct {
+				CurrentPage int `json:"current_page"`
+				PageSize    int `json:"page_size"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(resp.Body, &result); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if result.Pagination.CurrentPage != 2 {
+			t.Errorf("Expected current_page=2, got %d", result.Pagination.CurrentPage)
+		}
+
+		if result.Pagination.PageSize != 10 {
+			t.Errorf("Expected page_size=10, got %d", result.Pagination.PageSize)
+		}
+	})
+
+	t.Run("Boundary_PageSizeAtMax", func(t *testing.T) {
+		url := baseURL + "/api/v1/slow-queries?page_size=100"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var result struct {
+			Pagination struct {
+				PageSize int `json:"page_size"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(resp.Body, &result); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if result.Pagination.PageSize != 100 {
+			t.Errorf("Expected page_size=100, got %d", result.Pagination.PageSize)
+		}
+	})
+
+	t.Run("Boundary_PageSizeExceedsMax", func(t *testing.T) {
+		url := baseURL + "/api/v1/slow-queries?page_size=200"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var result struct {
+			Pagination struct {
+				PageSize int `json:"page_size"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(resp.Body, &result); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if result.Pagination.PageSize != 100 {
+			t.Errorf("Expected page_size to be clamped to 100, got %d", result.Pagination.PageSize)
+		}
+	})
+
+	// Time range filter tests
+	t.Run("Success_WithTimeRangeRFC3339", func(t *testing.T) {
+		now := time.Now().UTC()
+		startTime := now.Add(-24 * time.Hour).Format(time.RFC3339)
+		endTime := now.Format(time.RFC3339)
+		url := baseURL + "/api/v1/slow-queries?start=" + startTime + "&end=" + endTime
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Logf("Time range filter (RFC3339) returned status %d", resp.StatusCode)
+	})
+
+	t.Run("Success_WithTimeRangeUnixTimestamp", func(t *testing.T) {
+		now := time.Now().UTC()
+		startUnix := now.Add(-24 * time.Hour).Unix()
+		endUnix := now.Unix()
+		url := fmt.Sprintf("%s/api/v1/slow-queries?start=%d&end=%d", baseURL, startUnix, endUnix)
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Logf("Time range filter (Unix timestamp) returned status %d", resp.StatusCode)
+	})
+
+	t.Run("Success_WithOnlyStartTime", func(t *testing.T) {
+		now := time.Now().UTC()
+		startTime := now.Add(-24 * time.Hour).Format(time.RFC3339)
+		url := baseURL + "/api/v1/slow-queries?start=" + startTime
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Logf("Only start time filter returned status %d", resp.StatusCode)
+	})
+
+	t.Run("Success_WithOnlyEndTime", func(t *testing.T) {
+		now := time.Now().UTC()
+		endTime := now.Format(time.RFC3339)
+		url := baseURL + "/api/v1/slow-queries?end=" + endTime
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Logf("Only end time filter returned status %d", resp.StatusCode)
+	})
+
+	// SQL keyword filter tests
+	t.Run("Success_WithSqlKeyword", func(t *testing.T) {
+		url := baseURL + "/api/v1/slow-queries?sql_keyword=SELECT"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Logf("SQL keyword filter returned status %d", resp.StatusCode)
+	})
+
+	t.Run("Success_WithSqlKeywordCaseInsensitive", func(t *testing.T) {
+		url := baseURL + "/api/v1/slow-queries?sql_keyword=select"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Logf("SQL keyword filter (lowercase) returned status %d", resp.StatusCode)
+	})
+
+	t.Run("Success_WithSqlKeywordNoMatch", func(t *testing.T) {
+		url := baseURL + "/api/v1/slow-queries?sql_keyword=NONEXISTENTKEYWORD12345"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var result struct {
+			Data       []interface{} `json:"data"`
+			Pagination struct {
+				TotalCount int64 `json:"total_count"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(resp.Body, &result); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if result.Pagination.TotalCount != 0 {
+			t.Logf("Got %d results for non-matching keyword", result.Pagination.TotalCount)
+		}
+
+		t.Logf("Non-matching SQL keyword returned status %d", resp.StatusCode)
+	})
+
+	// Combined filter tests
+	t.Run("Success_WithTimeRangeAndSqlKeyword", func(t *testing.T) {
+		now := time.Now().UTC()
+		startTime := now.Add(-24 * time.Hour).Format(time.RFC3339)
+		endTime := now.Format(time.RFC3339)
+		url := baseURL + "/api/v1/slow-queries?start=" + startTime + "&end=" + endTime + "&sql_keyword=UPDATE"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Logf("Combined time range + SQL keyword filter returned status %d", resp.StatusCode)
+	})
+
+	t.Run("Success_AllFiltersCombined", func(t *testing.T) {
+		now := time.Now().UTC()
+		startTime := now.Add(-24 * time.Hour).Format(time.RFC3339)
+		endTime := now.Format(time.RFC3339)
+		url := baseURL + "/api/v1/slow-queries?endpoint=pg-cn-north-2-ecom-user-02&start=" + startTime + "&end=" + endTime + "&sql_keyword=SELECT&page=1&page_size=10"
+		resp := makeHTTPRequest(t, "GET", url, nil, nil)
+
+		if resp.StatusCode != 200 {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		var result struct {
+			Pagination struct {
+				CurrentPage int `json:"current_page"`
+				PageSize    int `json:"page_size"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(resp.Body, &result); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if result.Pagination.CurrentPage != 1 {
+			t.Errorf("Expected current_page=1, got %d", result.Pagination.CurrentPage)
+		}
+
+		if result.Pagination.PageSize != 10 {
+			t.Errorf("Expected page_size=10, got %d", result.Pagination.PageSize)
+		}
+
+		t.Logf("All filters combined returned status %d", resp.StatusCode)
 	})
 }

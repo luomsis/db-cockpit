@@ -109,7 +109,7 @@ type InstanceMeta struct {
 	SubsysCode       string    `json:"subsys_code"`
 	SourceSys        string    `json:"source_sys"`
 	AttachDb         string    `json:"attach_db"`
-	HostNamel        string    `json:"host_namel"`
+	HostName1        string    `json:"host_name1"`
 	HostName2        string    `json:"host_name2"`
 	DefaultRole      string    `json:"default_role"`
 	Role             string    `json:"role"`
@@ -162,4 +162,36 @@ type PaginationMeta struct {
 // InstancesQueryRequest for querying instances with pagination
 type InstancesQueryRequest struct {
 	Pagination PaginationRequest
+}
+
+// SlowQuery represents a slow SQL query record
+type SlowQuery struct {
+	ID           int64     `json:"id"`
+	Endpoint     string    `json:"endpoint"`
+	Hostname     string    `json:"hostname"`
+	Port         int64     `json:"port"`
+	DatabaseName string    `json:"database_name"`
+	Username     string    `json:"username"`
+	SqlText      string    `json:"sql_text"`
+	ExecuteTime  float64   `json:"execute_time"`
+	ExecuteDate  time.Time `json:"execute_date"`
+}
+
+// SlowQueryRequest is the repository request for querying slow queries
+type SlowQueryRequest struct {
+	Endpoint    string     // Optional - instance endpoint filter
+	SqlKeyword  string     // Optional, LIKE filter on sql_text (case-insensitive)
+	TimeRange   *TimeRange // Optional, nil means no time filter
+	Pagination  PaginationRequest
+}
+
+// AlertsQueryRequest is the request for querying alerts with optional filters and pagination
+type AlertsQueryRequest struct {
+	Endpoint    string     // Optional, empty string means no filter
+	AlertText   string     // Optional, ILIKE match on alert_text
+	StartTime   *time.Time // Optional, time overlap filter (alert.end_time >= start)
+	EndTime     *time.Time // Optional, time overlap filter (alert.start_time <= end)
+	Metric      string     // Optional, exact match on metric
+	Status      string     // Optional, exact match on status
+	Pagination  PaginationRequest
 }

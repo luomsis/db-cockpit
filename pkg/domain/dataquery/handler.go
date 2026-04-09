@@ -100,9 +100,16 @@ type InstancesListResponse struct {
 	Pagination *PaginationMeta `json:"pagination"`
 }
 
-// AlertsResponse is the response for GetAlerts
-type AlertsResponse struct {
-	Data []*Alert `json:"data"`
+// AlertsListResponse is the response for GetAlerts with pagination
+type AlertsListResponse struct {
+	Data       []*Alert        `json:"data"`
+	Pagination *PaginationMeta `json:"pagination"`
+}
+
+// SlowQueryListResponse is the response for GetSlowQueries
+type SlowQueryListResponse struct {
+	Data       []*SlowQuery    `json:"data"`
+	Pagination *PaginationMeta `json:"pagination"`
 }
 
 // Handlers
@@ -412,35 +419,181 @@ func parsePageSizeParam(c *app.RequestContext, defaultVal int) int {
 	return defaultVal
 }
 
-// GetAlerts handles GET /alerts/:endpoint requests
-// @Summary Get alerts by endpoint
-// @Description Get all alert events for a specific database instance endpoint
+// GetAlerts handles GET /alerts requests
+// @Summary Query alerts with optional filters
+// @Description Query alert events with optional filters (all parameters are optional). Time filter uses overlap logic: alert matches if its time range overlaps with query time range.
 // @Tags alerts
-// @Param endpoint path string true "Instance endpoint"
+// @Param endpoint query string false "Instance endpoint filter"
+// @Param alert_text query string false "Alert text keyword filter (case-insensitive LIKE match)"
+// @Param start query string false "Start time filter - alerts active after this time (RFC3339 or Unix timestamp)"
+// @Param end query string false "End time filter - alerts started before this time (RFC3339 or Unix timestamp)"
+// @Param metric query string false "Metric name filter (exact match)"
+// @Param status query string false "Status filter (exact match)"
+// @Param page query int false "Page number (default: 1)"
+// @Param page_size query int false "Page size (default: 20, max: 100)"
 // @Produce json
-// @Success 200 {object} AlertsResponse
-// @Failure 400 {object} ErrorResponse
+// @Success 200 {object} AlertsListResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /alerts/{endpoint} [get]
+// @Router /alerts [get]
 func (h *Handler) GetAlerts(ctx context.Context, c *app.RequestContext) {
-	endpoint := c.Param("endpoint")
-	if endpoint == "" {
-		logger.Warn("GetAlerts missing endpoint parameter")
-		c.JSON(400, ErrorResponse{Error: ErrorDetail{Code: "INVALID_PARAMETER", Message: "endpoint parameter is required"}})
-		return
+	// Parse endpoint (optional query parameter)
+	endpoint := c.Query("endpoint")
+
+	// Parse alert_text (optional)
+	alertText := c.Query("alert_text")
+
+	// Parse metric (optional)
+	metric := c.Query("metric")
+
+	// Parse status (optional)
+	status := c.Query("status")
+
+	// Parse optional time range filters
+	var startTime, endTime *time.Time
+
+	if startStr := c.Query("start"); startStr != "" {
+		t, err := time.Parse(time.RFC3339, startStr)
+		if err != nil {
+			// Try parsing as Unix timestamp
+			unixStart, err := strconv.ParseInt(startStr, 10, 64)
+			if err == nil {
+				parsed := time.Unix(unixStart, 0)
+				startTime = &parsed
+			}
+		} else {
+			startTime = &t
+		}
 	}
 
-	logger.Debug("GetAlerts called", zap.String("endpoint", endpoint))
+	if endStr := c.Query("end"); endStr != "" {
+		t, err := time.Parse(time.RFC3339, endStr)
+		if err != nil {
+			// Try parsing as Unix timestamp
+			unixEnd, err := strconv.ParseInt(endStr, 10, 64)
+			if err == nil {
+				parsed := time.Unix(unixEnd, 0)
+				endTime = &parsed
+			}
+		} else {
+			endTime = &t
+		}
+	}
 
-	alerts, err := h.service.GetAlertsByEndpoint(ctx, endpoint)
+	// Parse pagination params
+	page := parsePageParam(c, 1)       // default 1
+	pageSize := parsePageSizeParam(c, 20) // default 20
+
+	// Validate pagination
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100 // max limit
+	}
+
+	req := &AlertsQueryRequest{
+		Endpoint:   endpoint,
+		AlertText:  alertText,
+		StartTime:  startTime,
+		EndTime:    endTime,
+		Metric:     metric,
+		Status:     status,
+		Pagination: PaginationRequest{Page: page, PageSize: pageSize},
+	}
+
+	logger.Debug("GetAlerts called",
+		zap.String("endpoint", endpoint),
+		zap.String("alert_text", alertText),
+		zap.Bool("has_start_time", startTime != nil),
+		zap.Bool("has_end_time", endTime != nil),
+		zap.String("metric", metric),
+		zap.String("status", status),
+		zap.Int("page", page),
+		zap.Int("page_size", pageSize))
+
+	resp, err := h.service.GetAlertsByEndpoint(ctx, req)
 	if err != nil {
-		logger.Error("GetAlerts failed", zap.String("endpoint", endpoint), zap.Error(err))
+		logger.Error("GetAlerts failed", zap.Error(err))
 		c.JSON(500, ErrorResponse{Error: ErrorDetail{Code: "INTERNAL_ERROR", Message: err.Error()}})
 		return
 	}
 
-	logger.Debug("GetAlerts success", zap.String("endpoint", endpoint), zap.Int("count", len(alerts)))
-	c.JSON(200, AlertsResponse{Data: alerts})
+	logger.Debug("GetAlerts success",
+		zap.Int("count", len(resp.Data)),
+		zap.Int64("total", resp.Pagination.TotalCount))
+	c.JSON(200, resp)
+}
+
+// GetSlowQueries handles GET /slow-queries requests
+// @Summary Query slow queries with optional filters
+// @Description Query slow SQL query records with optional filters (all parameters are optional). Supports filtering by endpoint, SQL keyword, and time range.
+// @Tags slow-queries
+// @Param endpoint query string false "Instance endpoint filter"
+// @Param sql_keyword query string false "SQL text keyword filter (case-insensitive LIKE match)"
+// @Param start query string false "Start time (RFC3339 or Unix timestamp)"
+// @Param end query string false "End time (RFC3339 or Unix timestamp)"
+// @Param page query int false "Page number (default: 1)"
+// @Param page_size query int false "Page size (default: 20, max: 100)"
+// @Produce json
+// @Success 200 {object} SlowQueryListResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /slow-queries [get]
+func (h *Handler) GetSlowQueries(ctx context.Context, c *app.RequestContext) {
+	// Parse optional endpoint parameter
+	endpoint := c.Query("endpoint")
+
+	// Parse optional SQL keyword
+	sqlKeyword := c.Query("sql_keyword")
+
+	// Parse optional time range - only filter if parameters provided
+	var timeRange *TimeRange
+	if c.Query("start") != "" || c.Query("end") != "" {
+		tr := h.parseProvidedTimeRange(c)
+		timeRange = &tr
+	}
+
+	// Parse pagination params
+	page := parsePageParam(c, 1)
+	pageSize := parsePageSizeParam(c, 20)
+
+	// Validate pagination
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100 // max limit
+	}
+
+	req := &SlowQueryRequest{
+		Endpoint:   endpoint,
+		SqlKeyword: sqlKeyword,
+		TimeRange:  timeRange,
+		Pagination: PaginationRequest{Page: page, PageSize: pageSize},
+	}
+
+	logger.Debug("GetSlowQueries called",
+		zap.String("endpoint", endpoint),
+		zap.Bool("hasTimeRange", timeRange != nil),
+		zap.String("sqlKeyword", sqlKeyword))
+
+	resp, err := h.service.GetSlowQueries(ctx, req)
+	if err != nil {
+		logger.Error("GetSlowQueries failed", zap.String("endpoint", endpoint), zap.Error(err))
+		c.JSON(500, ErrorResponse{Error: ErrorDetail{Code: "INTERNAL_ERROR", Message: err.Error()}})
+		return
+	}
+
+	logger.Debug("GetSlowQueries success",
+		zap.String("endpoint", endpoint),
+		zap.Int("count", len(resp.Data)),
+		zap.Int64("total", resp.Pagination.TotalCount))
+	c.JSON(200, resp)
 }
 
 // Helper functions
@@ -529,6 +682,40 @@ func (h *Handler) parseOptionalTimeRange(c *app.RequestContext) TimeRange {
 		Start: time.Now().Add(-1 * time.Hour), // Default: last 1 hour
 		End:   time.Now(),
 	}
+
+	if startStr := c.Query("start"); startStr != "" {
+		start, err := time.Parse(time.RFC3339, startStr)
+		if err != nil {
+			// Try parsing as Unix timestamp
+			unixStart, err := strconv.ParseInt(startStr, 10, 64)
+			if err == nil {
+				timeRange.Start = time.Unix(unixStart, 0)
+			}
+		} else {
+			timeRange.Start = start
+		}
+	}
+
+	if endStr := c.Query("end"); endStr != "" {
+		end, err := time.Parse(time.RFC3339, endStr)
+		if err != nil {
+			// Try parsing as Unix timestamp
+			unixEnd, err := strconv.ParseInt(endStr, 10, 64)
+			if err == nil {
+				timeRange.End = time.Unix(unixEnd, 0)
+			}
+		} else {
+			timeRange.End = end
+		}
+	}
+
+	return timeRange
+}
+
+// parseProvidedTimeRange parses start/end parameters only when provided
+// Does not set default values - returns zero TimeRange if nothing provided
+func (h *Handler) parseProvidedTimeRange(c *app.RequestContext) TimeRange {
+	var timeRange TimeRange
 
 	if startStr := c.Query("start"); startStr != "" {
 		start, err := time.Parse(time.RFC3339, startStr)

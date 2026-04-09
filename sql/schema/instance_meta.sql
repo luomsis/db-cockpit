@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS public.instance_meta (
     subsys_code text NOT NULL,
     source_sys text NOT NULL,
     attach_db text NOT NULL,
-    host_namel text NOT NULL,
+    host_name1 text NOT NULL,
     host_name2 text NOT NULL,
     default_role text NOT NULL,
     "role" text NOT NULL,
@@ -86,7 +86,7 @@ COMMENT ON COLUMN public.instance_meta.instance_endpoint IS 'Instance connection
 COMMENT ON COLUMN public.instance_meta.subsys_code IS 'Subsystem code';
 COMMENT ON COLUMN public.instance_meta.source_sys IS 'Source system';
 COMMENT ON COLUMN public.instance_meta.attach_db IS 'Attached database name';
-COMMENT ON COLUMN public.instance_meta.host_namel IS 'Primary hostname';
+COMMENT ON COLUMN public.instance_meta.host_name1 IS 'Primary hostname';
 COMMENT ON COLUMN public.instance_meta.host_name2 IS 'Secondary hostname';
 COMMENT ON COLUMN public.instance_meta.default_role IS 'Default database role';
 COMMENT ON COLUMN public.instance_meta.role IS 'Current role';

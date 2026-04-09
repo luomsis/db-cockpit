@@ -31,6 +31,11 @@ type Repository interface {
 	// Returns instances slice and total count
 	GetAllInstances(ctx context.Context, req *InstancesQueryRequest) ([]*InstanceMeta, int64, error)
 
-	// GetAlertsByEndpoint retrieves all alerts for a specific endpoint
-	GetAlertsByEndpoint(ctx context.Context, endpoint string) ([]*Alert, error)
+	// GetAlertsByEndpoint retrieves alerts for a specific endpoint with pagination
+	// Returns alerts slice and total count
+	GetAlertsByEndpoint(ctx context.Context, req *AlertsQueryRequest) ([]*Alert, int64, error)
+
+	// GetSlowQueries retrieves slow queries with optional filters and pagination
+	// Returns slow queries slice and total count
+	GetSlowQueries(ctx context.Context, req *SlowQueryRequest) ([]*SlowQuery, int64, error)
 }

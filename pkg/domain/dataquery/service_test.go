@@ -122,11 +122,18 @@ func (m *mockRepository) GetAllInstances(ctx context.Context, req *InstancesQuer
 	return []*InstanceMeta{}, 0, nil
 }
 
-func (m *mockRepository) GetAlertsByEndpoint(ctx context.Context, endpoint string) ([]*Alert, error) {
+func (m *mockRepository) GetAlertsByEndpoint(ctx context.Context, req *AlertsQueryRequest) ([]*Alert, int64, error) {
 	if m.err != nil {
-		return nil, m.err
+		return nil, 0, m.err
 	}
-	return []*Alert{}, nil
+	return []*Alert{}, 0, nil
+}
+
+func (m *mockRepository) GetSlowQueries(ctx context.Context, req *SlowQueryRequest) ([]*SlowQuery, int64, error) {
+	if m.err != nil {
+		return nil, 0, m.err
+	}
+	return []*SlowQuery{}, 0, nil
 }
 
 // Service Tests
@@ -480,8 +487,283 @@ func (m *mockRepositoryWithPagination) GetAllInstances(ctx context.Context, req 
 	}
 	return m.instances, m.totalCount, nil
 }
-func (m *mockRepositoryWithPagination) GetAlertsByEndpoint(ctx context.Context, endpoint string) ([]*Alert, error) {
-	return []*Alert{}, nil
+func (m *mockRepositoryWithPagination) GetAlertsByEndpoint(ctx context.Context, req *AlertsQueryRequest) ([]*Alert, int64, error) {
+	return []*Alert{}, 0, nil
+}
+
+func (m *mockRepositoryWithPagination) GetSlowQueries(ctx context.Context, req *SlowQueryRequest) ([]*SlowQuery, int64, error) {
+	if m.err != nil {
+		return nil, 0, m.err
+	}
+	return []*SlowQuery{}, 0, nil
+}
+
+// mockRepositoryWithSlowQuery supports GetSlowQueries with test data
+type mockRepositoryWithSlowQuery struct {
+	mockRepository
+	slowQueries []*SlowQuery
+	totalCount  int64
+	err         error
+}
+
+func (m *mockRepositoryWithSlowQuery) GetSlowQueries(ctx context.Context, req *SlowQueryRequest) ([]*SlowQuery, int64, error) {
+	if m.err != nil {
+		return nil, 0, m.err
+	}
+	return m.slowQueries, m.totalCount, nil
+}
+
+func TestServiceGetSlowQueries_Success(t *testing.T) {
+	mockRepo := &mockRepositoryWithSlowQuery{
+		slowQueries: []*SlowQuery{
+			{ID: 1, Endpoint: "pg-cn-north-2-ecom-user-02", DatabaseName: "postgres", Username: "admin", SqlText: "SELECT * FROM users", ExecuteTime: 5.5, ExecuteDate: time.Now()},
+			{ID: 2, Endpoint: "pg-cn-north-2-ecom-user-02", DatabaseName: "postgres", Username: "admin", SqlText: "SELECT * FROM orders", ExecuteTime: 3.2, ExecuteDate: time.Now()},
+		},
+		totalCount: 2,
+	}
+	svc := NewService(mockRepo)
+
+	req := &SlowQueryRequest{
+		Endpoint:   "pg-cn-north-2-ecom-user-02",
+		Pagination: PaginationRequest{Page: 1, PageSize: 20},
+	}
+
+	resp, err := svc.GetSlowQueries(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetSlowQueries() error = %v", err)
+	}
+
+	if len(resp.Data) != 2 {
+		t.Errorf("GetSlowQueries() returned %d slow queries, want 2", len(resp.Data))
+	}
+
+	if resp.Pagination == nil {
+		t.Fatal("GetSlowQueries() pagination is nil")
+	}
+
+	if resp.Pagination.TotalCount != 2 {
+		t.Errorf("GetSlowQueries() total_count = %d, want 2", resp.Pagination.TotalCount)
+	}
+
+	if resp.Pagination.TotalPages != 1 {
+		t.Errorf("GetSlowQueries() total_pages = %d, want 1", resp.Pagination.TotalPages)
+	}
+}
+
+func TestServiceGetSlowQueries_EmptyResult(t *testing.T) {
+	mockRepo := &mockRepositoryWithSlowQuery{
+		slowQueries: []*SlowQuery{},
+		totalCount:  0,
+	}
+	svc := NewService(mockRepo)
+
+	req := &SlowQueryRequest{
+		Endpoint:   "pg-cn-north-2-ecom-user-02",
+		Pagination: PaginationRequest{Page: 1, PageSize: 20},
+	}
+
+	resp, err := svc.GetSlowQueries(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetSlowQueries() error = %v", err)
+	}
+
+	if len(resp.Data) != 0 {
+		t.Errorf("GetSlowQueries() returned %d slow queries, want 0", len(resp.Data))
+	}
+
+	if resp.Pagination.TotalCount != 0 {
+		t.Errorf("GetSlowQueries() total_count = %d, want 0", resp.Pagination.TotalCount)
+	}
+}
+
+func TestServiceGetSlowQueries_Pagination(t *testing.T) {
+	mockRepo := &mockRepositoryWithSlowQuery{
+		slowQueries: []*SlowQuery{
+			{ID: 1, Endpoint: "pg-cn-north-2-ecom-user-02", DatabaseName: "postgres"},
+		},
+		totalCount: 50,
+	}
+	svc := NewService(mockRepo)
+
+	req := &SlowQueryRequest{
+		Endpoint:   "pg-cn-north-2-ecom-user-02",
+		Pagination: PaginationRequest{Page: 2, PageSize: 20},
+	}
+
+	resp, err := svc.GetSlowQueries(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetSlowQueries() error = %v", err)
+	}
+
+	// 50 total / 20 per page = 2.5 -> 3 pages
+	if resp.Pagination.TotalPages != 3 {
+		t.Errorf("GetSlowQueries() total_pages = %d, want 3", resp.Pagination.TotalPages)
+	}
+
+	if resp.Pagination.CurrentPage != 2 {
+		t.Errorf("GetSlowQueries() current_page = %d, want 2", resp.Pagination.CurrentPage)
+	}
+}
+
+func TestServiceGetSlowQueries_ErrorPropagation(t *testing.T) {
+	mockRepo := &mockRepositoryWithSlowQuery{
+		err: context.Canceled,
+	}
+	svc := NewService(mockRepo)
+
+	req := &SlowQueryRequest{
+		Endpoint:   "pg-cn-north-2-ecom-user-02",
+		Pagination: PaginationRequest{Page: 1, PageSize: 20},
+	}
+
+	_, err := svc.GetSlowQueries(context.Background(), req)
+	if err == nil {
+		t.Error("GetSlowQueries() should return error when repository fails")
+	}
+
+	if err != context.Canceled {
+		t.Errorf("GetSlowQueries() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestServiceGetSlowQueries_WithTimeRange(t *testing.T) {
+	now := time.Now()
+	start := now.Add(-24 * time.Hour)
+	end := now
+
+	mockRepo := &mockRepositoryWithSlowQuery{
+		slowQueries: []*SlowQuery{
+			{ID: 1, Endpoint: "pg-cn-north-2-ecom-user-02", DatabaseName: "postgres", Username: "admin", SqlText: "SELECT * FROM users", ExecuteTime: 5.5, ExecuteDate: now.Add(-12 * time.Hour)},
+		},
+		totalCount: 1,
+	}
+	svc := NewService(mockRepo)
+
+	req := &SlowQueryRequest{
+		Endpoint:   "pg-cn-north-2-ecom-user-02",
+		TimeRange:  &TimeRange{Start: start, End: end},
+		Pagination: PaginationRequest{Page: 1, PageSize: 20},
+	}
+
+	resp, err := svc.GetSlowQueries(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetSlowQueries() error = %v", err)
+	}
+
+	if len(resp.Data) != 1 {
+		t.Errorf("GetSlowQueries() returned %d slow queries, want 1", len(resp.Data))
+	}
+}
+
+func TestServiceGetSlowQueries_WithSqlKeyword(t *testing.T) {
+	mockRepo := &mockRepositoryWithSlowQuery{
+		slowQueries: []*SlowQuery{
+			{ID: 1, Endpoint: "pg-cn-north-2-ecom-user-02", DatabaseName: "postgres", Username: "admin", SqlText: "SELECT * FROM users", ExecuteTime: 5.5, ExecuteDate: time.Now()},
+		},
+		totalCount: 1,
+	}
+	svc := NewService(mockRepo)
+
+	req := &SlowQueryRequest{
+		Endpoint:   "pg-cn-north-2-ecom-user-02",
+		SqlKeyword: "SELECT",
+		Pagination: PaginationRequest{Page: 1, PageSize: 20},
+	}
+
+	resp, err := svc.GetSlowQueries(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetSlowQueries() error = %v", err)
+	}
+
+	if len(resp.Data) != 1 {
+		t.Errorf("GetSlowQueries() returned %d slow queries, want 1", len(resp.Data))
+	}
+}
+
+func TestServiceGetSlowQueries_WithTimeRangeAndSqlKeyword(t *testing.T) {
+	now := time.Now()
+	start := now.Add(-24 * time.Hour)
+	end := now
+
+	mockRepo := &mockRepositoryWithSlowQuery{
+		slowQueries: []*SlowQuery{
+			{ID: 1, Endpoint: "pg-cn-north-2-ecom-user-02", DatabaseName: "postgres", Username: "admin", SqlText: "UPDATE users SET name = 'test'", ExecuteTime: 5.5, ExecuteDate: now.Add(-12 * time.Hour)},
+		},
+		totalCount: 1,
+	}
+	svc := NewService(mockRepo)
+
+	req := &SlowQueryRequest{
+		Endpoint:   "pg-cn-north-2-ecom-user-02",
+		TimeRange:  &TimeRange{Start: start, End: end},
+		SqlKeyword: "UPDATE",
+		Pagination: PaginationRequest{Page: 1, PageSize: 20},
+	}
+
+	resp, err := svc.GetSlowQueries(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetSlowQueries() error = %v", err)
+	}
+
+	if len(resp.Data) != 1 {
+		t.Errorf("GetSlowQueries() returned %d slow queries, want 1", len(resp.Data))
+	}
+}
+
+func TestServiceGetSlowQueries_NoFilters(t *testing.T) {
+	// Test that request with no filters returns all slow queries
+	mockRepo := &mockRepositoryWithSlowQuery{
+		slowQueries: []*SlowQuery{
+			{ID: 1, Endpoint: "pg-cn-north-2-ecom-user-01", DatabaseName: "postgres", Username: "admin", SqlText: "SELECT * FROM users", ExecuteTime: 5.5, ExecuteDate: time.Now()},
+			{ID: 2, Endpoint: "pg-cn-north-2-ecom-user-02", DatabaseName: "postgres", Username: "admin", SqlText: "SELECT * FROM orders", ExecuteTime: 3.2, ExecuteDate: time.Now()},
+		},
+		totalCount: 2,
+	}
+	svc := NewService(mockRepo)
+
+	// Request with empty endpoint (no filter)
+	req := &SlowQueryRequest{
+		Endpoint:   "", // Empty means no filter
+		Pagination: PaginationRequest{Page: 1, PageSize: 20},
+	}
+
+	resp, err := svc.GetSlowQueries(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetSlowQueries() error = %v", err)
+	}
+
+	if len(resp.Data) != 2 {
+		t.Errorf("GetSlowQueries() returned %d slow queries, want 2", len(resp.Data))
+	}
+
+	if resp.Pagination.TotalCount != 2 {
+		t.Errorf("GetSlowQueries() total_count = %d, want 2", resp.Pagination.TotalCount)
+	}
+}
+
+func TestServiceGetSlowQueries_OnlySqlKeywordFilter(t *testing.T) {
+	// Test that request with only sql_keyword filter works
+	mockRepo := &mockRepositoryWithSlowQuery{
+		slowQueries: []*SlowQuery{
+			{ID: 1, Endpoint: "pg-cn-north-2-ecom-user-01", DatabaseName: "postgres", Username: "admin", SqlText: "SELECT * FROM users", ExecuteTime: 5.5, ExecuteDate: time.Now()},
+		},
+		totalCount: 1,
+	}
+	svc := NewService(mockRepo)
+
+	req := &SlowQueryRequest{
+		SqlKeyword: "SELECT",
+		Pagination: PaginationRequest{Page: 1, PageSize: 20},
+	}
+
+	resp, err := svc.GetSlowQueries(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetSlowQueries() error = %v", err)
+	}
+
+	if len(resp.Data) != 1 {
+		t.Errorf("GetSlowQueries() returned %d slow queries, want 1", len(resp.Data))
+	}
 }
 
 // mockRepositoryWithInstance supports GetInstanceByEndpoint and GetAlertsByEndpoint
@@ -498,11 +780,11 @@ func (m *mockRepositoryWithInstance) GetInstanceByEndpoint(ctx context.Context, 
 	return m.instance, nil
 }
 
-func (m *mockRepositoryWithInstance) GetAlertsByEndpoint(ctx context.Context, endpoint string) ([]*Alert, error) {
+func (m *mockRepositoryWithInstance) GetAlertsByEndpoint(ctx context.Context, req *AlertsQueryRequest) ([]*Alert, int64, error) {
 	if m.err != nil {
-		return nil, m.err
+		return nil, 0, m.err
 	}
-	return m.alerts, nil
+	return m.alerts, int64(len(m.alerts)), nil
 }
 
 // mockRepositoryWithInterval tracks interval parameter for testing sampling
@@ -615,17 +897,30 @@ func TestServiceGetAlertsByEndpoint_Success(t *testing.T) {
 	}
 	svc := NewService(mockRepo)
 
-	alerts, err := svc.GetAlertsByEndpoint(context.Background(), "test-endpoint")
+	req := &AlertsQueryRequest{
+		Endpoint:   "test-endpoint",
+		Pagination: PaginationRequest{Page: 1, PageSize: 20},
+	}
+
+	resp, err := svc.GetAlertsByEndpoint(context.Background(), req)
 	if err != nil {
 		t.Fatalf("GetAlertsByEndpoint() error = %v", err)
 	}
 
-	if len(alerts) != 2 {
-		t.Errorf("GetAlertsByEndpoint() returned %d alerts, want 2", len(alerts))
+	if len(resp.Data) != 2 {
+		t.Errorf("GetAlertsByEndpoint() returned %d alerts, want 2", len(resp.Data))
 	}
 
-	if alerts[0].AlertText != "High CPU" {
-		t.Errorf("GetAlertsByEndpoint() first alert text = %s, want 'High CPU'", alerts[0].AlertText)
+	if resp.Data[0].AlertText != "High CPU" {
+		t.Errorf("GetAlertsByEndpoint() first alert text = %s, want 'High CPU'", resp.Data[0].AlertText)
+	}
+
+	if resp.Pagination == nil {
+		t.Fatal("GetAlertsByEndpoint() pagination is nil")
+	}
+
+	if resp.Pagination.TotalCount != 2 {
+		t.Errorf("GetAlertsByEndpoint() total_count = %d, want 2", resp.Pagination.TotalCount)
 	}
 }
 
@@ -635,18 +930,215 @@ func TestServiceGetAlertsByEndpoint_EmptyResult(t *testing.T) {
 	}
 	svc := NewService(mockRepo)
 
-	alerts, err := svc.GetAlertsByEndpoint(context.Background(), "endpoint-with-no-alerts")
+	req := &AlertsQueryRequest{
+		Endpoint:   "endpoint-with-no-alerts",
+		Pagination: PaginationRequest{Page: 1, PageSize: 20},
+	}
+
+	resp, err := svc.GetAlertsByEndpoint(context.Background(), req)
 	if err != nil {
 		t.Fatalf("GetAlertsByEndpoint() error = %v", err)
 	}
 
-	if alerts == nil {
+	if resp.Data == nil {
 		t.Error("GetAlertsByEndpoint() should return empty slice, not nil")
 	}
 
-	if len(alerts) != 0 {
-		t.Errorf("GetAlertsByEndpoint() returned %d alerts, want 0", len(alerts))
+	if len(resp.Data) != 0 {
+		t.Errorf("GetAlertsByEndpoint() returned %d alerts, want 0", len(resp.Data))
 	}
+
+	if resp.Pagination.TotalCount != 0 {
+		t.Errorf("GetAlertsByEndpoint() total_count = %d, want 0", resp.Pagination.TotalCount)
+	}
+}
+
+func TestServiceGetAlertsByEndpoint_WithFilters(t *testing.T) {
+	mockRepo := &mockRepositoryWithAlerts{
+		alerts: []*Alert{
+			{ID: 1, EventID: "evt-1", Endpoint: "mysql-prod-01", AlertText: "High CPU usage", Metric: "cpu_usage", Status: "firing", StartTime: time.Date(2025, 1, 10, 0, 0, 0, 0, time.UTC), EndTime: time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC)},
+			{ID: 2, EventID: "evt-2", Endpoint: "mysql-prod-01", AlertText: "Memory warning", Metric: "memory_usage", Status: "resolved", StartTime: time.Date(2025, 1, 20, 0, 0, 0, 0, time.UTC), EndTime: time.Date(2025, 1, 25, 0, 0, 0, 0, time.UTC)},
+			{ID: 3, EventID: "evt-3", Endpoint: "pg-prod-02", AlertText: "Connection timeout", Metric: "connections", Status: "firing", StartTime: time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC), EndTime: time.Date(2025, 2, 5, 0, 0, 0, 0, time.UTC)},
+		},
+		totalCount: 3,
+	}
+	svc := NewService(mockRepo)
+
+	startTime := time.Date(2025, 1, 5, 0, 0, 0, 0, time.UTC)
+	endTime := time.Date(2025, 1, 20, 0, 0, 0, 0, time.UTC)
+
+	req := &AlertsQueryRequest{
+		Endpoint:   "mysql-prod-01",
+		AlertText:  "CPU",
+		Metric:     "cpu_usage",
+		Status:     "firing",
+		StartTime:  &startTime,
+		EndTime:    &endTime,
+		Pagination: PaginationRequest{Page: 1, PageSize: 20},
+	}
+
+	resp, err := svc.GetAlertsByEndpoint(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetAlertsByEndpoint() error = %v", err)
+	}
+
+	if resp.Pagination == nil {
+		t.Fatal("GetAlertsByEndpoint() pagination is nil")
+	}
+
+	// Verify the request was passed to repository
+	if mockRepo.lastRequest == nil {
+		t.Fatal("Request was not passed to repository")
+	}
+
+	if mockRepo.lastRequest.Endpoint != "mysql-prod-01" {
+		t.Errorf("Endpoint = %s, want mysql-prod-01", mockRepo.lastRequest.Endpoint)
+	}
+	if mockRepo.lastRequest.AlertText != "CPU" {
+		t.Errorf("AlertText = %s, want CPU", mockRepo.lastRequest.AlertText)
+	}
+	if mockRepo.lastRequest.Metric != "cpu_usage" {
+		t.Errorf("Metric = %s, want cpu_usage", mockRepo.lastRequest.Metric)
+	}
+	if mockRepo.lastRequest.Status != "firing" {
+		t.Errorf("Status = %s, want firing", mockRepo.lastRequest.Status)
+	}
+	if mockRepo.lastRequest.StartTime == nil {
+		t.Error("StartTime should not be nil")
+	}
+	if mockRepo.lastRequest.EndTime == nil {
+		t.Error("EndTime should not be nil")
+	}
+}
+
+func TestServiceGetAlertsByEndpoint_OnlyStartTime(t *testing.T) {
+	mockRepo := &mockRepositoryWithAlerts{
+		alerts:     []*Alert{},
+		totalCount: 0,
+	}
+	svc := NewService(mockRepo)
+
+	startTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	req := &AlertsQueryRequest{
+		StartTime:  &startTime,
+		Pagination: PaginationRequest{Page: 1, PageSize: 20},
+	}
+
+	_, err := svc.GetAlertsByEndpoint(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetAlertsByEndpoint() error = %v", err)
+	}
+
+	if mockRepo.lastRequest.StartTime == nil {
+		t.Error("StartTime should be passed to repository")
+	}
+	if mockRepo.lastRequest.EndTime != nil {
+		t.Error("EndTime should be nil when not provided")
+	}
+}
+
+func TestServiceGetAlertsByEndpoint_OnlyEndTime(t *testing.T) {
+	mockRepo := &mockRepositoryWithAlerts{
+		alerts:     []*Alert{},
+		totalCount: 0,
+	}
+	svc := NewService(mockRepo)
+
+	endTime := time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC)
+
+	req := &AlertsQueryRequest{
+		EndTime:    &endTime,
+		Pagination: PaginationRequest{Page: 1, PageSize: 20},
+	}
+
+	_, err := svc.GetAlertsByEndpoint(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetAlertsByEndpoint() error = %v", err)
+	}
+
+	if mockRepo.lastRequest.EndTime == nil {
+		t.Error("EndTime should be passed to repository")
+	}
+	if mockRepo.lastRequest.StartTime != nil {
+		t.Error("StartTime should be nil when not provided")
+	}
+}
+
+func TestServiceGetAlertsByEndpoint_Pagination(t *testing.T) {
+	mockRepo := &mockRepositoryWithAlerts{
+		alerts: []*Alert{
+			{ID: 1, EventID: "evt-1", Endpoint: "test-endpoint"},
+		},
+		totalCount: 50,
+	}
+	svc := NewService(mockRepo)
+
+	req := &AlertsQueryRequest{
+		Endpoint:   "test-endpoint",
+		Pagination: PaginationRequest{Page: 2, PageSize: 10},
+	}
+
+	resp, err := svc.GetAlertsByEndpoint(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetAlertsByEndpoint() error = %v", err)
+	}
+
+	// 50 total / 10 per page = 5 pages
+	if resp.Pagination.TotalPages != 5 {
+		t.Errorf("GetAlertsByEndpoint() total_pages = %d, want 5", resp.Pagination.TotalPages)
+	}
+
+	if resp.Pagination.CurrentPage != 2 {
+		t.Errorf("GetAlertsByEndpoint() current_page = %d, want 2", resp.Pagination.CurrentPage)
+	}
+
+	if resp.Pagination.PageSize != 10 {
+		t.Errorf("GetAlertsByEndpoint() page_size = %d, want 10", resp.Pagination.PageSize)
+	}
+}
+
+// mockRepositoryWithAlerts supports GetAlertsByEndpoint with test data and tracks the request
+type mockRepositoryWithAlerts struct {
+	alerts      []*Alert
+	totalCount  int64
+	err         error
+	lastRequest *AlertsQueryRequest
+}
+
+func (m *mockRepositoryWithAlerts) GetEndpoints(ctx context.Context) ([]string, error) {
+	return []string{}, nil
+}
+func (m *mockRepositoryWithAlerts) GetMetrics(ctx context.Context, endpoint string) ([]string, error) {
+	return []string{}, nil
+}
+func (m *mockRepositoryWithAlerts) QuerySeries(ctx context.Context, req *SeriesQueryRequest) ([]SeriesMeta, error) {
+	return []SeriesMeta{}, nil
+}
+func (m *mockRepositoryWithAlerts) GetSeriesByID(ctx context.Context, id int64) (*SeriesMeta, error) {
+	return nil, nil
+}
+func (m *mockRepositoryWithAlerts) GetSeriesPoints(ctx context.Context, req *PointsQueryRequest) (map[int64][]DataPoint, error) {
+	return map[int64][]DataPoint{}, nil
+}
+func (m *mockRepositoryWithAlerts) GetSeriesStatistics(ctx context.Context, req *StatsRequest) (map[int64]*SeriesStatistics, error) {
+	return map[int64]*SeriesStatistics{}, nil
+}
+func (m *mockRepositoryWithAlerts) GetInstanceByEndpoint(ctx context.Context, endpoint string) (*InstanceMeta, error) {
+	return nil, nil
+}
+func (m *mockRepositoryWithAlerts) GetAllInstances(ctx context.Context, req *InstancesQueryRequest) ([]*InstanceMeta, int64, error) {
+	return []*InstanceMeta{}, 0, nil
+}
+func (m *mockRepositoryWithAlerts) GetAlertsByEndpoint(ctx context.Context, req *AlertsQueryRequest) ([]*Alert, int64, error) {
+	if m.err != nil {
+		return nil, 0, m.err
+	}
+	m.lastRequest = req
+	return m.alerts, m.totalCount, nil
+}
+func (m *mockRepositoryWithAlerts) GetSlowQueries(ctx context.Context, req *SlowQueryRequest) ([]*SlowQuery, int64, error) {
+	return []*SlowQuery{}, 0, nil
 }
 
 func TestServiceQuerySeriesWithInterval(t *testing.T) {
