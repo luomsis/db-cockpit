@@ -16,6 +16,7 @@ import (
 	"github.com/db-cockpit/pkg/common/logger"
 	"github.com/db-cockpit/pkg/domain/dataquery"
 	_ "github.com/db-cockpit/docs" // swagger docs
+	"github.com/hertz-contrib/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 )
@@ -82,6 +83,16 @@ func main() {
 		server.WithHostPorts(addr),
 		server.WithDisablePrintRoute(false),
 	)
+
+	// Add CORS middleware for frontend access
+	h.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:3000"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
 
 	// Add request logging middleware
 	h.Use(func(ctx context.Context, c *app.RequestContext) {

@@ -1,5 +1,13 @@
 {
   "enabledPlugins": {
     "superpowers@superpowers-dev": true
+  },
+  "extraKnownMarketplaces": {
+    "project-skills": {
+      "source": {
+        "source": "directory",
+        "path": ".claude/skills"
+      }
+    }
   }
 }
