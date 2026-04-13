@@ -84,9 +84,9 @@ func main() {
 		server.WithDisablePrintRoute(false),
 	)
 
-	// Add CORS middleware for frontend access
+	// Add CORS middleware for frontend and Swagger UI access
 	h.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:3000"},
+		AllowAllOrigins:  true,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
