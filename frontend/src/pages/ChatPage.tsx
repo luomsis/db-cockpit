@@ -28,17 +28,6 @@ export default function ChatPage() {
     if (q !== undefined) setInput('');
   };
 
-  /* 告警页「问 AI」入口：sessionStorage 预填草稿，进入即自动发送 */
-  useEffect(() => {
-    const draft = sessionStorage.getItem('alertAskDraft');
-    if (draft) {
-      sessionStorage.removeItem('alertAskDraft');
-      const timer = setTimeout(() => doSend(draft), 300);
-      return () => clearTimeout(timer);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   if (!active) return null;
   const empty = active.messages.length === 0;
 
