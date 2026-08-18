@@ -13,6 +13,10 @@ services:
   frontend:
     build:
       context: ./frontend
+      args:
+        # 构建期注入 git 版本与时间（scripts/build-compose.sh 自动填充）
+        GIT_SHA: ${GIT_SHA:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
     image: db-cockpit-frontend:v0.2.0
     container_name: db-cockpit-frontend
     platform: linux/amd64
@@ -25,6 +29,10 @@ services:
   apiserver:
     build:
       context: ./apiserver
+      args:
+        # 构建期注入 git 版本与时间（scripts/build-compose.sh 自动填充）
+        GIT_SHA: ${GIT_SHA:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
     image: db-cockpit-apiserver:v0.1.0
     container_name: db-cockpit-apiserver
     platform: linux/amd64

@@ -29,6 +29,7 @@ func New(cfg config.Config, gdb *gorm.DB, rt *agent.Runtime) *gin.Engine {
 
 	api := r.Group("/api")
 	{
+		api.GET("/version", h.GetVersion)
 		api.GET("/overview", h.GetOverview)
 		api.GET("/alerts", h.GetAlerts)
 

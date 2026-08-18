@@ -4,6 +4,10 @@
 
 # ---------- 构建阶段 ----------
 FROM --platform=linux/amd64 node:20-alpine AS build
+# 构建期注入 git 版本与时间（scripts/build-compose.sh 自动填充；容器内无 git，故用 env 传入）
+ARG GIT_SHA=unknown
+ARG BUILD_TIME=unknown
+ENV GIT_SHA=${GIT_SHA} BUILD_TIME=${BUILD_TIME}
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund

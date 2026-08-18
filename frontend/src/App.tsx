@@ -58,6 +58,43 @@ const NAV = [
   { path: '/chat', ico: '🤖', label: '智能对话' },
 ];
 
+/* ---------- 左下角：compose 各服务 git 版本与构建时间 ---------- */
+interface SvcVersion { name: string; gitSHA: string; buildTime: string }
+
+function fmtTime(iso?: string): string {
+  if (!iso || iso === 'unknown') return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function ServiceVersions() {
+  const [fe, setFe] = useState<SvcVersion | null>(null);
+  const [api, setApi] = useState<SvcVersion | null>(null);
+  useEffect(() => {
+    fetch('/version.json').then(r => r.json()).then(setFe).catch(() => { /* 离线忽略 */ });
+    fetch('/api/version')
+      .then(r => r.json())
+      .then((env: { code: number; data: SvcVersion }) => { if (env.code === 0) setApi(env.data); })
+      .catch(() => { /* 离线忽略 */ });
+  }, []);
+  return (
+    <div className="svc-versions">
+      <div className="svc-version" title="frontend 构建信息">
+        <span className="svc-name">frontend</span>
+        <span className="svc-sha">{fe?.gitSHA || 'unknown'}</span>
+        <span className="svc-time">{fmtTime(fe?.buildTime)}</span>
+      </div>
+      <div className="svc-version" title="apiserver 构建信息">
+        <span className="svc-name">apiserver</span>
+        <span className="svc-sha">{api?.gitSHA || 'unknown'}</span>
+        <span className="svc-time">{fmtTime(api?.buildTime)}</span>
+      </div>
+    </div>
+  );
+}
+
 function Shell() {
   const location = useLocation();
   const [items, setItems] = useState<CrumbItem[]>([{ label: '首页' }, { label: '运维概览' }]);
@@ -100,11 +137,14 @@ function Shell() {
             ))}
           </nav>
           <div className="sidebar-foot">
-            <div className="env-dot"></div>
-            <div>
-              <div className="env-name">开发环境 DEV</div>
-              <div className="env-sub">v0.1.0 · apiserver 已接线</div>
+            <div className="sf-env">
+              <div className="env-dot"></div>
+              <div>
+                <div className="env-name">开发环境 DEV</div>
+                <div className="env-sub">v0.1.0 · apiserver 已接线</div>
+              </div>
             </div>
+            <ServiceVersions />
           </div>
         </aside>
 

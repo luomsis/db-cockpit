@@ -83,11 +83,24 @@ body::before {
 .sidebar-foot {
   margin: 12px; padding: 11px 12px; border-radius: 9px;
   background: #f6f9ff; border: 1px solid #e3ecfd;
-  display: flex; gap: 10px; align-items: center;
 }
+.sf-env { display: flex; gap: 10px; align-items: center; }
 .env-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px rgba(0, 179, 101, 0.6); flex-shrink: 0; }
 .env-name { font-size: 12.5px; font-weight: 600; color: var(--text); }
 .env-sub { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+
+/* 左下角：compose 各服务 git 版本与构建时间 */
+.svc-versions {
+  margin-top: 8px; padding-top: 8px; border-top: 1px dashed #dbe6fb;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.svc-version {
+  display: flex; gap: 6px; align-items: baseline;
+  font-size: 10.5px; font-family: Menlo, Consolas, monospace; color: var(--text-3);
+}
+.svc-name { color: var(--text-2); }
+.svc-sha { color: var(--blue); }
+.svc-time { margin-left: auto; }
 
 /* ---------------- 主区域 ---------------- */
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
