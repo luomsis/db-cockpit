@@ -17,3 +17,4 @@ deploy/*.tar.gz
 
 # GUI 测试截图
 gui-test-screenshots/
+.gstack/

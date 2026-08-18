@@ -1,32 +1,16 @@
-/* ================= 列表页通用小部件：搜索框 / 列筛选 / 分页 / 操作图标 ================= */
+/* ================= 列表页通用小部件：搜索框 / 列筛选 / 分页 ================= */
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { IconEye, IconFunnel, IconSearch } from './icons';
 
-export function EyeIcon({ size = 15 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
-function FunnelIcon({ size = 12 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
-    </svg>
-  );
-}
+export { IconEye as EyeIcon } from './icons';
 
 /* 关键字搜索框（带清空按钮） */
 export function SearchInput({ value, onChange, placeholder }:
   { value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
     <div className="tbl-search">
-      <span className="ico">⌕</span>
+      <span className="ico"><IconSearch /></span>
       <input value={value} placeholder={placeholder} onChange={e => onChange(e.target.value)} />
       {!!value && <button className="clear" title="清空" onClick={() => onChange('')}>×</button>}
     </div>
@@ -77,7 +61,7 @@ export function Th({ children, filter }: {
           <span className="th-filter-slot">
             <button className={`th-filter${filter.value ? ' active' : ''}`} title="筛选"
               onClick={e => { e.stopPropagation(); setOpen(o => !o); }}>
-              <FunnelIcon />
+              <IconFunnel />
             </button>
             {open && (
               <div className="th-filter-pop">

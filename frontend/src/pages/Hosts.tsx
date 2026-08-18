@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Pill } from '../components/bits';
 import { HOSTS, type HostRow } from '../lib/mockData';
 import { apiGet, withFallback } from '../lib/api';
 import { useBreadcrumb } from '../App';
 import { FilterChips, Pagination, SearchInput, Th, uniqOpts } from '../components/tableKit';
 import type { ActiveFilter } from '../components/tableKit';
+import { IconMonitor, IconAlertTriangle, IconCpu, IconMemory, IconDisk } from '../components/icons';
 
 /* 规格串 '16C / 64G' → 核数 / 内存 GB */
 function parseSpec(spec: string) {
@@ -20,7 +22,7 @@ function ResVal({ text, pct }: { text: string; pct: number }) {
 }
 
 /* 图标统计卡 */
-function HostStat({ ico, num, lbl, sub, warn }: { ico: string; num: any; lbl: string; sub?: string; warn?: boolean }) {
+function HostStat({ ico, num, lbl, sub, warn }: { ico: ReactNode; num: any; lbl: string; sub?: string; warn?: boolean }) {
   return (
     <div className={`host-stat${warn ? ' warn' : ''}`}>
       <div className="hs-ico">{ico}</div>
@@ -83,11 +85,11 @@ export default function Hosts() {
       <div className="page-title">主机</div>
       <div className="page-desc">实例宿主的资源水位视图（物理机 / 虚机），共 {hosts.length} 台</div>
       <div className="host-stat-row">
-        <HostStat ico="🖥" num={hosts.length} lbl="主机总数" sub={`${hosts.filter(h => h.status === 'ok').length} 台运行正常`} />
-        <HostStat ico="⚠️" num={abn} lbl="异常/警告主机" sub={abn ? '需要关注' : '全部健康'} warn={!!abn} />
-        <HostStat ico="🔥" num={`${avg('cpu')}%`} lbl="平均 CPU" sub={`最高 ${top('cpu').cpu}% · ${top('cpu').ip}`} />
-        <HostStat ico="💾" num={`${avg('mem')}%`} lbl="平均内存" sub={`最高 ${top('mem').mem}% · ${top('mem').ip}`} />
-        <HostStat ico="🗄️" num={`${avg('disk')}%`} lbl="平均磁盘水位" sub={`最高 ${top('disk').disk}% · ${top('disk').ip}`} />
+        <HostStat ico={<IconMonitor />} num={hosts.length} lbl="主机总数" sub={`${hosts.filter(h => h.status === 'ok').length} 台运行正常`} />
+        <HostStat ico={<IconAlertTriangle />} num={abn} lbl="异常/警告主机" sub={abn ? '需要关注' : '全部健康'} warn={!!abn} />
+        <HostStat ico={<IconCpu />} num={`${avg('cpu')}%`} lbl="平均 CPU" sub={`最高 ${top('cpu').cpu}% · ${top('cpu').ip}`} />
+        <HostStat ico={<IconMemory />} num={`${avg('mem')}%`} lbl="平均内存" sub={`最高 ${top('mem').mem}% · ${top('mem').ip}`} />
+        <HostStat ico={<IconDisk />} num={`${avg('disk')}%`} lbl="平均磁盘水位" sub={`最高 ${top('disk').disk}% · ${top('disk').ip}`} />
       </div>
       <div className="filter-bar">
         <SearchInput value={kw} onChange={setKw} placeholder="搜索 IP / 集群 / 实例…" />

@@ -13,6 +13,7 @@ import ChatPage from './pages/ChatPage';
 import { ChatPanel } from './components/ChatPanel';
 import { ApiProvider, setQueryProvider } from './lib/query';
 import { apiGet, withFallback } from './lib/api';
+import { IconOverview, IconCluster, IconHost, IconDashboard, IconChat, IconSearch, IconBell } from './components/icons';
 
 /* 后端就绪：大盘查询切到 apiserver（失败自动回退 mock） */
 setQueryProvider(ApiProvider);
@@ -51,11 +52,11 @@ export function useBreadcrumb(items: CrumbItem[]) {
 }
 
 const NAV = [
-  { path: '/overview', ico: '◉', label: '概览' },
-  { path: '/clusters', ico: '⛁', label: '集群' },
-  { path: '/hosts', ico: '🖥', label: '主机' },
-  { path: '/dashboards', ico: '📊', label: '监控大盘' },
-  { path: '/chat', ico: '🤖', label: '智能对话' },
+  { path: '/overview', Ico: IconOverview, label: '概览' },
+  { path: '/clusters', Ico: IconCluster, label: '集群' },
+  { path: '/hosts', Ico: IconHost, label: '主机' },
+  { path: '/dashboards', Ico: IconDashboard, label: '监控大盘' },
+  { path: '/chat', Ico: IconChat, label: '智能对话' },
 ];
 
 /* ---------- 左下角：compose 各服务 git 版本 ---------- */
@@ -122,7 +123,7 @@ function Shell() {
             {NAV.map(n => (
               <Link key={n.path} to={n.path}
                 className={location.pathname === n.path || (n.path === '/dashboards' && location.pathname.startsWith('/dashboard')) ? 'active' : ''}>
-                <span className="ico">{n.ico}</span>{n.label}
+                <span className="ico"><n.Ico size={17} /></span>{n.label}
               </Link>
             ))}
           </nav>
@@ -155,8 +156,8 @@ function Shell() {
               })}
             </div>
             <div className="topbar-right">
-              <div className="search"><span className="ico">⌕</span><input placeholder="搜索集群 / 实例 / SQL…" /></div>
-              <button className="icon-btn" title="告警中心"><span className="bell">🔔</span><i className="badge">{alertTotal}</i></button>
+              <div className="search"><span className="ico"><IconSearch /></span><input placeholder="搜索集群 / 实例 / SQL…" /></div>
+              <button className="icon-btn" title="告警中心"><span className="bell"><IconBell /></span><i className="badge">{alertTotal}</i></button>
               <div className="avatar">运</div>
             </div>
           </header>

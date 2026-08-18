@@ -8,6 +8,7 @@ import { useChat } from '../lib/useChat';
 import { loadDrawerWidth, saveDrawerWidth, loadActiveSession, saveActiveSession } from '../lib/chatSessions';
 import { relTime } from '../lib/dashboards';
 import { MessageView } from './chatParts';
+import { IconHistory, IconPlus, IconClose, IconRobot } from './icons';
 
 export function ChatPanel({ onClose }: { onClose: () => void }) {
   const { sessions, active, setActiveId, streaming, send, stop, createSession, removeSession } = useChat();
@@ -64,9 +65,9 @@ export function ChatPanel({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <div className="chat-drawer-ops">
-          <button className={`chat-drawer-ic${showHistory ? ' on' : ''}`} title="聊天历史" onClick={() => setShowHistory(v => !v)}>🕘</button>
-          <button className="chat-drawer-ic" title="新会话" onClick={createSession}>＋</button>
-          <button className="chat-drawer-close" onClick={onClose} title="收起面板">✕</button>
+          <button className={`chat-drawer-ic${showHistory ? ' on' : ''}`} title="聊天历史" onClick={() => setShowHistory(v => !v)}><IconHistory /></button>
+          <button className="chat-drawer-ic" title="新会话" onClick={createSession}><IconPlus /></button>
+          <button className="chat-drawer-close" onClick={onClose} title="收起面板"><IconClose /></button>
         </div>
       </div>
 
@@ -93,7 +94,7 @@ export function ChatPanel({ onClose }: { onClose: () => void }) {
           <div className="chat-drawer-body" ref={bodyRef}>
             {empty && (
               <div className="chatp-welcome">
-                <div className="chatp-welcome-ico">🤖</div>
+                <div className="chatp-welcome-ico"><IconRobot /></div>
                 <div className="chatp-welcome-title">你好，我是 DB Cockpit 智能运维助手</div>
                 <div className="chatp-welcome-desc">支持告警问数、指标问数、实例诊断。点击下方问题快速开始：</div>
                 <div className="chatp-quick">

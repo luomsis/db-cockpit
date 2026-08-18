@@ -6,6 +6,7 @@ import { MonitorTab } from '../components/MonitorTab';
 import { CLUSTERS, TYPE_ICON, INSTANCE_USERS, SESSIONS, TRANSACTIONS, SLOW_SQLS } from '../lib/mockData';
 import { apiGet, apiPost, withFallback } from '../lib/api';
 import { useBreadcrumb } from '../App';
+import { IconRefresh, IconBolt, IconRobot } from '../components/icons';
 import type { Cluster, Instance } from '../lib/types';
 
 interface UserRow { user: string; host: string; priv: string; lastLogin: string; status: string }
@@ -115,8 +116,8 @@ export default function InstanceDetail() {
           </div>
         </div>
         <div className="detail-head-right">
-          <button className="btn" onClick={reload}>↻ 刷新</button>
-          <Link className="btn primary" to="/chat">🤖 AI 诊断</Link>
+          <button className="btn" onClick={reload}><IconRefresh size={13} /> 刷新</button>
+          <Link className="btn primary" to="/chat"><IconRobot size={14} /> AI 诊断</Link>
         </div>
       </div>
       <div className="tabs">
@@ -175,7 +176,7 @@ export default function InstanceDetail() {
           </table>
           {diagSql != null && (
             <div className="advice">
-              <h4>🤖 AI 优化建议</h4>
+              <h4 className="ai-advice-title"><IconRobot size={15} /> AI 优化建议</h4>
               <ul>
                 {(diagAdvice.length ? diagAdvice : [
                   `对 ${sqls[diagSql].db} 表缺少合适索引，建议添加联合索引，预计扫描行数下降 92%；`,

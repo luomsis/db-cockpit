@@ -5,6 +5,7 @@ import { fetchAnnotations, fetchSeries, rangeTicks } from '../lib/query';
 import { gaugeOpt, tsChartOpt } from '../lib/chartOptions';
 import type { Annotation, DashCfg, Panel, ResolvedTarget } from '../lib/types';
 import { CLUSTERS } from '../lib/mockData';
+import { IconEye, IconEdit, IconTrash } from '../components/icons';
 
 /* 面板数据解析：targets → 查询层取数 → 渲染序列；支持对比昨日 + 事件标注 */
 export async function resolveTargets(p: Panel, cfg: DashCfg): Promise<{ xs: string[]; targets: ResolvedTarget[]; annotations: Annotation[] }> {
@@ -190,9 +191,9 @@ export function PanelView({ panel, cfg, reloadKey, onEdit, onDelete, onZoom, hei
 function PanelMenu({ onEdit, onDelete, onZoom }: { onEdit: () => void; onDelete: () => void; onZoom: () => void }) {
   return (
     <span className="panel-acts">
-      <button className="panel-act" title="查看（放大）" onClick={e => { e.stopPropagation(); onZoom(); }}>👁</button>
-      <button className="panel-act" title="编辑" onClick={e => { e.stopPropagation(); onEdit(); }}>✎</button>
-      <button className="panel-act danger" title="删除" onClick={e => { e.stopPropagation(); onDelete(); }}>🗑</button>
+      <button className="panel-act" title="查看（放大）" onClick={e => { e.stopPropagation(); onZoom(); }}><IconEye size={14} /></button>
+      <button className="panel-act" title="编辑" onClick={e => { e.stopPropagation(); onEdit(); }}><IconEdit size={14} /></button>
+      <button className="panel-act danger" title="删除" onClick={e => { e.stopPropagation(); onDelete(); }}><IconTrash size={14} /></button>
     </span>
   );
 }

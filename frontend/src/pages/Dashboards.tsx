@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { InfoDialog, ConfirmDialog } from '../components/dialogs';
 import { loadDashboards, saveDashboards, normalizeDashboard, relTime, serverInit, serverCreate, serverUpdate, serverDelete } from '../lib/dashboards';
 import type { Dashboard } from '../lib/types';
+import { IconSearch } from '../components/icons';
 import { useBreadcrumb } from '../App';
 
 /* /dashboards 入口：默认直达「默认大盘」（服务端同步后跳转） */
@@ -64,7 +65,7 @@ export default function Dashboards() {
       <div className="page-desc">点击卡片进入大盘；支持新建、编辑信息、制作副本、删除。大盘配置存储于 apiserver（离线时回退本地浏览器）。</div>
       <div className="dash-list-head">
         <div className="dash-search-wrap">
-          <span className="ico">⌕</span>
+          <span className="ico"><IconSearch /></span>
           <input className="dash-search" placeholder="搜索大盘标题或描述…" value={kw} onChange={e => setKw(e.target.value)} />
         </div>
         <button className="btn sm primary" onClick={() => setMetaDialog({ mode: 'create' })}>+ 新建大盘</button>

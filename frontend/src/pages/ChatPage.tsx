@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { MessageView } from '../components/chatParts';
 import { QUICK_QUESTIONS } from '../lib/mockAgent';
 import { useChat } from '../lib/useChat';
+import { IconRobot } from '../components/icons';
 import { useBreadcrumb } from '../App';
 
 /* 完整对话页：会话与流式回复走 apiserver SSE（离线自动回退本地 mock） */
@@ -55,7 +56,7 @@ export default function ChatPage() {
         <div className="chatp-body" ref={bodyRef}>
           {empty && (
             <div className="chatp-welcome">
-              <div className="chatp-welcome-ico">🤖</div>
+              <div className="chatp-welcome-ico"><IconRobot /></div>
               <div className="chatp-welcome-title">你好，我是 DB Cockpit 智能运维助手</div>
               <div className="chatp-welcome-desc">支持告警问数、指标问数、实例诊断（含异步深度扫描）。点击下方问题快速开始：</div>
               <div className="chatp-quick">

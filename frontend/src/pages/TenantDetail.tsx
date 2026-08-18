@@ -5,6 +5,7 @@ import { MonitorTab } from '../components/MonitorTab';
 import { CLUSTERS, SESSIONS, SLOW_SQLS } from '../lib/mockData';
 import { apiGet, apiPost, apiPut, withFallback } from '../lib/api';
 import { useBreadcrumb } from '../App';
+import { IconRefresh, IconBolt, IconRobot } from '../components/icons';
 import type { ObTenant, ObTenantDb, ParamItem } from '../lib/types';
 
 interface SessionRow { id: number; user: string; host: string; db: string; cmd: string; time: string; state: string; lock: string; status: string }
@@ -106,8 +107,8 @@ export default function TenantDetail() {
           </div>
         </div>
         <div className="detail-head-right">
-          <button className="btn" onClick={reload}>↻ 刷新</button>
-          <Link className="btn primary" to="/chat">🤖 AI 诊断</Link>
+          <button className="btn" onClick={reload}><IconRefresh size={13} /> 刷新</button>
+          <Link className="btn primary" to="/chat"><IconRobot size={14} /> AI 诊断</Link>
         </div>
       </div>
       <div className="tabs">
@@ -252,7 +253,7 @@ export default function TenantDetail() {
           </table>
           {diagSql != null && (
             <div className="advice">
-              <h4>🤖 AI 优化建议</h4>
+              <h4 className="ai-advice-title"><IconRobot size={15} /> AI 优化建议</h4>
               <ul>
                 <li><code>{sqls[diagSql].db}</code> 缺少合适索引，建议添加联合索引 <code>idx_status_uid (status, uid)</code>，预计扫描行数下降 <b style={{ color: 'var(--green)' }}>92%</b>；</li>
                 <li>存在隐式类型转换导致索引失效，请核对字段类型与传参类型一致；</li>

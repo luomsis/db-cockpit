@@ -6,6 +6,7 @@ import { MonitorTab } from '../components/MonitorTab';
 import { TYPE_ICON, REPORTS } from '../lib/mockData';
 import { apiGet, apiPost, apiPut, withFallback } from '../lib/api';
 import type { Cluster, ObTenant, ParamItem } from '../lib/types';
+import { IconRefresh, IconBolt, IconRobot } from '../components/icons';
 
 interface ReportRow { id: number; ico: string; title: string; desc: string; date: string; size: string }
 
@@ -77,8 +78,8 @@ export default function ClusterDetailOb({ cluster: c, reload }: { cluster: Clust
           <div className="detail-sub"><span>{c.version}</span><span>{c.mode}</span><span>{c.desc}</span></div>
         </div>
         <div className="detail-head-right">
-          <button className="btn" onClick={reload}>↻ 刷新</button>
-          <Link className="btn primary" to="/chat">⚡ 智能巡检</Link>
+          <button className="btn" onClick={reload}><IconRefresh size={13} /> 刷新</button>
+          <Link className="btn primary" to="/chat"><IconBolt size={13} /> 智能巡检</Link>
         </div>
       </div>
       <div className="tabs">
