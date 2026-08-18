@@ -58,16 +58,8 @@ const NAV = [
   { path: '/chat', ico: '🤖', label: '智能对话' },
 ];
 
-/* ---------- 左下角：compose 各服务 git 版本与构建时间 ---------- */
+/* ---------- 左下角：compose 各服务 git 版本 ---------- */
 interface SvcVersion { name: string; gitSHA: string; buildTime: string }
-
-function fmtTime(iso?: string): string {
-  if (!iso || iso === 'unknown') return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
-}
 
 function ServiceVersions() {
   const [fe, setFe] = useState<SvcVersion | null>(null);
@@ -81,15 +73,13 @@ function ServiceVersions() {
   }, []);
   return (
     <div className="svc-versions">
-      <div className="svc-version" title="frontend 构建信息">
+      <div className="svc-version" title="frontend 构建版本">
         <span className="svc-name">frontend</span>
         <span className="svc-sha">{fe?.gitSHA || 'unknown'}</span>
-        <span className="svc-time">{fmtTime(fe?.buildTime)}</span>
       </div>
-      <div className="svc-version" title="apiserver 构建信息">
+      <div className="svc-version" title="apiserver 构建版本">
         <span className="svc-name">apiserver</span>
         <span className="svc-sha">{api?.gitSHA || 'unknown'}</span>
-        <span className="svc-time">{fmtTime(api?.buildTime)}</span>
       </div>
     </div>
   );
