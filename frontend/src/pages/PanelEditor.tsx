@@ -121,15 +121,15 @@ export function PanelEditor({ panel, cfg, editing, onOk, onClose }: {
                     </select>
                     <input data-f="name" placeholder="名称" value={t.name} onChange={e => setTarget(i, { name: e.target.value })} />
                     <input type="color" data-f="color" value={t.color || '#006aff'} title="颜色" onChange={e => setTarget(i, { color: e.target.value })} />
-                    <select data-f="axis" value={t.axis} onChange={e => setTarget(i, { axis: e.target.value as 'left' | 'right' })}>
-                      <option value="left">左 Y 轴</option>
-                      <option value="right">右 Y 轴</option>
+                    <select data-f="axis" value={t.axis} onChange={e => setTarget(i, { axis: e.target.value as 'left' | 'right' })} title="Y 轴">
+                      <option value="left">左轴</option>
+                      <option value="right">右轴</option>
                     </select>
-                    <select data-f="type" value={t.type} onChange={e => setTarget(i, { type: e.target.value as PanelTarget['type'] })}>
+                    <select data-f="type" value={t.type} onChange={e => setTarget(i, { type: e.target.value as PanelTarget['type'] })} title="图型">
                       {[['line', '折线'], ['bar', '柱状'], ['area', '面积'], ['points', '点']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                     </select>
                     <select data-f="agg" title="聚合" value={t.agg || ''} onChange={e => setTarget(i, { agg: e.target.value })}>
-                      {[['', '原始'], ['avg', '平均'], ['max', '最大'], ['min', '最小'], ['last', '末值'], ['p95', 'P95']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                      {[['', '原始'], ['avg', '均值'], ['max', '最大'], ['min', '最小'], ['last', '末值'], ['p95', 'P95']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                     </select>
                     <select data-f="groupBy" title="分组" value={t.groupBy || ''} onChange={e => setTarget(i, { groupBy: e.target.value })}>
                       {[['', '不分组'], ['cluster', '按集群'], ['instance', '按实例']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}

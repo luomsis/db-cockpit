@@ -1,4 +1,6 @@
 /* ================= 列表页通用小部件：搜索框 / 列筛选 / 分页 / 操作图标 ================= */
+import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 
 export function EyeIcon({ size = 15 }: { size?: number }) {
   return (
@@ -6,6 +8,15 @@ export function EyeIcon({ size = 15 }: { size?: number }) {
       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
       <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+function FunnelIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
     </svg>
   );
 }
@@ -39,6 +50,66 @@ export function FilterSelect({ label, value, options, onChange }:
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
     </label>
+  );
+}
+
+/* ---------- 列头过滤：列名旁漏斗图标，点击弹出下拉；选中后图标高亮 ---------- */
+export function Th({ children, filter }: {
+  children?: ReactNode;
+  filter?: { value: string; options: FilterOption[]; onChange: (v: string) => void };
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  return (
+    <th>
+      <div className="th-inner" ref={ref}>
+        <span className="th-label">{children}</span>
+        {filter && (
+          <span className="th-filter-slot">
+            <button className={`th-filter${filter.value ? ' active' : ''}`} title="筛选"
+              onClick={e => { e.stopPropagation(); setOpen(o => !o); }}>
+              <FunnelIcon />
+            </button>
+            {open && (
+              <div className="th-filter-pop">
+                <button className={`th-filter-opt${!filter.value ? ' cur' : ''}`}
+                  onClick={() => { filter.onChange(''); setOpen(false); }}>全部</button>
+                {filter.options.map(o => (
+                  <button key={o.value} className={`th-filter-opt${filter.value === o.value ? ' cur' : ''}`}
+                    onClick={() => { filter.onChange(o.value); setOpen(false); }}>{o.label}</button>
+                ))}
+              </div>
+            )}
+          </span>
+        )}
+      </div>
+    </th>
+  );
+}
+
+/* ---------- 活跃过滤条件 chips（× 删除） ---------- */
+export interface ActiveFilter { key: string; label: string; value: string; onRemove: () => void }
+
+export function FilterChips({ items }: { items: ActiveFilter[] }) {
+  if (!items.length) return null;
+  return (
+    <div className="filter-chips">
+      {items.map(f => (
+        <span className="chip" key={f.key}>
+          {f.label}: <b>{f.value}</b>
+          <button title="删除该过滤条件" onClick={f.onRemove}>×</button>
+        </span>
+      ))}
+    </div>
   );
 }
 

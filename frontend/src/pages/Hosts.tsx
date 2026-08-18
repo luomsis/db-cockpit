@@ -3,7 +3,8 @@ import { Pill } from '../components/bits';
 import { HOSTS, type HostRow } from '../lib/mockData';
 import { apiGet, withFallback } from '../lib/api';
 import { useBreadcrumb } from '../App';
-import { FilterSelect, Pagination, SearchInput, uniqOpts } from '../components/tableKit';
+import { FilterChips, Pagination, SearchInput, Th, uniqOpts } from '../components/tableKit';
+import type { ActiveFilter } from '../components/tableKit';
 
 /* 规格串 '16C / 64G' → 核数 / 内存 GB */
 function parseSpec(spec: string) {
@@ -67,6 +68,12 @@ export default function Hosts() {
   const cur = Math.min(page, pageCount);
   const rows = filtered.slice((cur - 1) * pageSize, cur * pageSize);
 
+  const chips: ActiveFilter[] = [
+    fZone && { key: 'zone', label: '可用区', value: fZone, onRemove: () => setFZone('') },
+    fOs && { key: 'os', label: '操作系统', value: fOs, onRemove: () => setFOs('') },
+    fSt && { key: 'st', label: '状态', value: ST_LABEL[fSt] || fSt, onRemove: () => setFSt('') },
+  ].filter(Boolean) as ActiveFilter[];
+
   const abn = hosts.filter(h => h.status !== 'ok').length;
   const avg = (k: 'cpu' | 'mem' | 'disk') => Math.round(hosts.reduce((a, h) => a + h[k], 0) / hosts.length);
   const top = (k: 'cpu' | 'mem' | 'disk') => hosts.reduce((a, b) => (b[k] > a[k] ? b : a));
@@ -84,9 +91,7 @@ export default function Hosts() {
       </div>
       <div className="filter-bar">
         <SearchInput value={kw} onChange={setKw} placeholder="搜索 IP / 集群 / 实例…" />
-        <FilterSelect label="可用区" value={fZone} options={uniqOpts(hosts.map(h => h.zone))} onChange={setFZone} />
-        <FilterSelect label="操作系统" value={fOs} options={uniqOpts(hosts.map(h => h.os))} onChange={setFOs} />
-        <FilterSelect label="状态" value={fSt} options={statusOpts} onChange={setFSt} />
+        <FilterChips items={chips} />
       </div>
       <div className="card">
         <div className="card-head">
@@ -96,7 +101,12 @@ export default function Hosts() {
         <table className="tbl hosts-tbl">
           <thead>
             <tr>
-              <th>IP</th><th>可用区</th><th>规格</th><th>操作系统</th><th>CPU</th><th>内存</th><th>磁盘</th><th>实例数</th><th>状态</th>
+              <Th>IP</Th>
+              <Th filter={{ value: fZone, options: uniqOpts(hosts.map(h => h.zone)), onChange: setFZone }}>可用区</Th>
+              <Th>规格</Th>
+              <Th filter={{ value: fOs, options: uniqOpts(hosts.map(h => h.os)), onChange: setFOs }}>操作系统</Th>
+              <Th>CPU</Th><Th>内存</Th><Th>磁盘</Th><Th>实例数</Th>
+              <Th filter={{ value: fSt, options: statusOpts, onChange: setFSt }}>状态</Th>
             </tr>
           </thead>
           <tbody>

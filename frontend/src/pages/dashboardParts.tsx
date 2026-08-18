@@ -186,19 +186,13 @@ export function PanelView({ panel, cfg, reloadKey, onEdit, onDelete, onZoom, hei
   );
 }
 
-/* 面板 ⋯ 菜单（hover 显示，点击展开） */
+/* 面板操作：标题栏右侧平铺三个图标（查看 / 编辑 / 删除） */
 function PanelMenu({ onEdit, onDelete, onZoom }: { onEdit: () => void; onDelete: () => void; onZoom: () => void }) {
-  const [open, setOpen] = useState(false);
   return (
-    <span style={{ position: 'relative', marginLeft: 2 }}>
-      {open && (
-        <div className="dash-card-popover" style={{ position: 'absolute', top: 26, right: 0, zIndex: 50 }}>
-          <button className="exp-more-item" onClick={() => { setOpen(false); onZoom(); }}>查看</button>
-          <button className="exp-more-item" onClick={() => { setOpen(false); onEdit(); }}>编辑</button>
-          <button className="exp-more-item" onClick={() => { setOpen(false); onDelete(); }}>删除</button>
-        </div>
-      )}
-      <button className="panel-menu-btn" title="面板操作" onClick={e => { e.stopPropagation(); setOpen(o => !o); }}>⋯</button>
+    <span className="panel-acts">
+      <button className="panel-act" title="查看（放大）" onClick={e => { e.stopPropagation(); onZoom(); }}>👁</button>
+      <button className="panel-act" title="编辑" onClick={e => { e.stopPropagation(); onEdit(); }}>✎</button>
+      <button className="panel-act danger" title="删除" onClick={e => { e.stopPropagation(); onDelete(); }}>🗑</button>
     </span>
   );
 }

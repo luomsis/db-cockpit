@@ -63,7 +63,10 @@ export default function Dashboards() {
       <div className="page-title">监控大盘 <span className="pill info"><i></i>共 {list.length} 个大盘</span></div>
       <div className="page-desc">点击卡片进入大盘；支持新建、编辑信息、制作副本、删除。大盘配置存储于 apiserver（离线时回退本地浏览器）。</div>
       <div className="dash-list-head">
-        <input className="dash-search" placeholder="搜索大盘标题或描述…" value={kw} onChange={e => setKw(e.target.value)} />
+        <div className="dash-search-wrap">
+          <span className="ico">⌕</span>
+          <input className="dash-search" placeholder="搜索大盘标题或描述…" value={kw} onChange={e => setKw(e.target.value)} />
+        </div>
         <button className="btn sm primary" onClick={() => setMetaDialog({ mode: 'create' })}>+ 新建大盘</button>
       </div>
       <div className="dash-list-grid">
@@ -123,13 +126,13 @@ export default function Dashboards() {
   );
 }
 
-/* 卡片 ⋯ 菜单（相对卡片定位） */
+/* 卡片 ⋯ 菜单（相对卡片定位；hover 卡片提升层叠，避免被相邻卡片遮挡） */
 function CardMenu({ items }: { items: { label: string; onClick: () => void }[] }) {
   const [open, setOpen] = useState(false);
   return (
     <span style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
       {open && (
-        <div className="dash-card-popover" style={{ position: 'absolute', top: 20, right: 0, zIndex: 60 }}>
+        <div className="dash-card-popover" style={{ position: 'absolute', top: 20, right: 0 }}>
           {items.map(it => (
             <button key={it.label} className="exp-more-item" onClick={() => { setOpen(false); it.onClick(); }}>{it.label}</button>
           ))}

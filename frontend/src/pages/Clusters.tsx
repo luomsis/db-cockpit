@@ -4,13 +4,16 @@ import { Pill, TypeTag } from '../components/bits';
 import { CLUSTERS, DB_TYPES } from '../lib/mockData';
 import { apiGet, withFallback } from '../lib/api';
 import { useBreadcrumb } from '../App';
-import { EyeIcon, FilterSelect, Pagination, SearchInput, uniqOpts } from '../components/tableKit';
+import { EyeIcon, FilterChips, Pagination, SearchInput, Th, uniqOpts } from '../components/tableKit';
+import type { ActiveFilter } from '../components/tableKit';
 import type { Cluster } from '../lib/types';
 
 const verText = (c: Cluster) => c.version.split(' ').slice(1).join(' ') || c.version;
 const clusterStatus = (c: Cluster) =>
   c.instances.some(i => i.status === 'err') ? 'err'
     : c.instances.some(i => i.status === 'warn') ? 'warn' : 'ok';
+
+const ST_OPTS = [{ value: 'ok', label: '正常' }, { value: 'warn', label: '警告' }, { value: 'err', label: '异常' }];
 
 export default function Clusters() {
   const { '*': focusParam } = useParams();
@@ -34,6 +37,7 @@ export default function Clusters() {
   const [fType, setFType] = useState('');
   const [fVer, setFVer] = useState('');
   const [fAz, setFAz] = useState('');
+  const [fSt, setFSt] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
@@ -41,10 +45,18 @@ export default function Clusters() {
     (!kw.trim() || (c.name + ' ' + c.desc + ' ' + c.biz).toLowerCase().includes(kw.trim().toLowerCase()))
     && (!fType || c.type === fType)
     && (!fVer || verText(c) === fVer)
-    && (!fAz || c.az === fAz));
+    && (!fAz || c.az === fAz)
+    && (!fSt || clusterStatus(c) === fSt));
 
   /* 任一筛选变化时回到第 1 页 */
-  useEffect(() => { setPage(1); }, [kw, fType, fVer, fAz]);
+  useEffect(() => { setPage(1); }, [kw, fType, fVer, fAz, fSt]);
+
+  const chips: ActiveFilter[] = [
+    fType && { key: 'type', label: '数据库类型', value: typeOpts.find(o => o.value === fType)?.label || fType, onRemove: () => setFType('') },
+    fVer && { key: 'ver', label: '版本号', value: fVer, onRemove: () => setFVer('') },
+    fAz && { key: 'az', label: '可用区', value: fAz, onRemove: () => setFAz('') },
+    fSt && { key: 'st', label: '状态', value: ST_OPTS.find(o => o.value === fSt)?.label || fSt, onRemove: () => setFSt('') },
+  ].filter(Boolean) as ActiveFilter[];
 
   const total = filtered.length;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -57,15 +69,18 @@ export default function Clusters() {
       <div className="page-desc">共 {clusters.length} 个集群 · {clusters.reduce((a, c) => a + c.instances.length, 0)} 个实例，点击操作列图标查看集群详情</div>
       <div className="filter-bar">
         <SearchInput value={kw} onChange={setKw} placeholder="搜索集群名称 / 描述…" />
-        <FilterSelect label="数据库类型" value={fType} options={typeOpts} onChange={setFType} />
-        <FilterSelect label="版本号" value={fVer} options={uniqOpts(clusters.map(verText))} onChange={setFVer} />
-        <FilterSelect label="可用区" value={fAz} options={uniqOpts(clusters.map(c => c.az))} onChange={setFAz} />
+        <FilterChips items={chips} />
       </div>
       <div className="card">
         <table className="tbl">
           <thead>
             <tr>
-              <th>集群名称</th><th>数据库类型</th><th>版本号</th><th>可用区</th><th>状态</th><th style={{ width: 72 }}>操作</th>
+              <Th>集群名称</Th>
+              <Th filter={{ value: fType, options: typeOpts, onChange: setFType }}>数据库类型</Th>
+              <Th filter={{ value: fVer, options: uniqOpts(clusters.map(verText)), onChange: setFVer }}>版本号</Th>
+              <Th filter={{ value: fAz, options: uniqOpts(clusters.map(c => c.az)), onChange: setFAz }}>可用区</Th>
+              <Th filter={{ value: fSt, options: ST_OPTS, onChange: setFSt }}>状态</Th>
+              <th style={{ width: 72 }}>操作</th>
             </tr>
           </thead>
           <tbody>
