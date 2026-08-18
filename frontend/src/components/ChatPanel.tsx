@@ -75,7 +75,6 @@ export function ChatPanel({ onClose }: { onClose: () => void }) {
         <div className="chat-history">
           <div className="chat-history-head">
             <span>聊天历史 · {sessions.length} 个会话</span>
-            <button className="btn sm primary" onClick={createSession}>＋ 新会话</button>
           </div>
           <div className="chat-history-list">
             {sortedSessions.map(s => (
