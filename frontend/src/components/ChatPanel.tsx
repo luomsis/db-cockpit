@@ -8,6 +8,7 @@ import { useChat } from '../lib/useChat';
 import { loadDrawerWidth, saveDrawerWidth, loadActiveSession, saveActiveSession } from '../lib/chatSessions';
 import { relTime } from '../lib/dashboards';
 import { MessageView } from './chatParts';
+import { ChatAnchorRail } from './chatAnchorRail';
 import { IconHistory, IconPlus, IconClose, IconRobot } from './icons';
 
 export function ChatPanel({ onClose }: { onClose: () => void }) {
@@ -90,22 +91,24 @@ export function ChatPanel({ onClose }: { onClose: () => void }) {
         </div>
       ) : (
         <>
-          <div className="chat-drawer-body" ref={bodyRef}>
-            {empty && (
-              <div className="chatp-welcome">
-                <div className="chatp-welcome-ico"><IconRobot /></div>
-                <div className="chatp-welcome-title">你好，我是 DB Cockpit 智能运维助手</div>
-                <div className="chatp-welcome-desc">支持告警问数、指标问数、实例诊断。点击下方问题快速开始：</div>
-                <div className="chatp-quick">
-                  {QUICK_QUESTIONS.slice(0, 4).map(q => <button key={q} onClick={() => doSend(q)}>{q}</button>)}
+          <ChatAnchorRail scrollRef={bodyRef} messages={active.messages}>
+            <div className="chat-drawer-body" ref={bodyRef}>
+              {empty && (
+                <div className="chatp-welcome">
+                  <div className="chatp-welcome-ico"><IconRobot /></div>
+                  <div className="chatp-welcome-title">你好，我是 DB Cockpit 智能运维助手</div>
+                  <div className="chatp-welcome-desc">支持告警问数、指标问数、实例诊断。点击下方问题快速开始：</div>
+                  <div className="chatp-quick">
+                    {QUICK_QUESTIONS.slice(0, 4).map(q => <button key={q} onClick={() => doSend(q)}>{q}</button>)}
+                  </div>
                 </div>
-              </div>
-            )}
-            {active.messages.map(m => <MessageView key={m.id} msg={m} onAsk={q => doSend(q)} />)}
-            {streaming && (
-              <div className="chatp-stop-row"><button className="btn sm" onClick={stop}>■ 停止生成</button></div>
-            )}
-          </div>
+              )}
+              {active.messages.map(m => <MessageView key={m.id} msg={m} onAsk={q => doSend(q)} />)}
+              {streaming && (
+                <div className="chatp-stop-row"><button className="btn sm" onClick={stop}>■ 停止生成</button></div>
+              )}
+            </div>
+          </ChatAnchorRail>
           <div className="chat-drawer-input">
             <input
               value={input}

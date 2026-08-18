@@ -5,12 +5,12 @@ import type { ChatMessage } from '../lib/types';
 
 ensureCardRenderers();
 
-/* 单条消息：用户气泡 / 助手（推理轨迹 + 文本 + 卡片） */
+/* 单条消息：用户气泡（右对齐）/ 助手（左对齐，推理轨迹 + 文本 + 卡片，无头像） */
 export function MessageView({ msg, onAsk }: { msg: ChatMessage; onAsk: (q: string) => void }) {
   const [traceOpen, setTraceOpen] = useState(false);
   if (msg.role === 'user') {
     return (
-      <div className="cmsg user">
+      <div className="cmsg user" data-mid={msg.id} data-role="user">
         <div className="cmsg-bubble">{msg.text}</div>
       </div>
     );
@@ -18,8 +18,7 @@ export function MessageView({ msg, onAsk }: { msg: ChatMessage; onAsk: (q: strin
   const thoughts = msg.thoughts || [];
   const running = thoughts.some(t => t.status === 'running');
   return (
-    <div className="cmsg bot">
-      <div className="cmsg-avatar">AI</div>
+    <div className="cmsg bot" data-mid={msg.id} data-role="assistant">
       <div className="cmsg-content">
         {thoughts.length > 0 && (
           <div className={`trace ${traceOpen ? 'open' : ''}`}>
