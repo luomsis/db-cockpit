@@ -430,10 +430,19 @@ func (r *Runtime) finalize(t *turn) {
 	var maxSeq int
 	r.db.Model(&model.ChatMessage{}).Where("session_id = ?", t.sessionID).
 		Select("COALESCE(MAX(seq), 0)").Scan(&maxSeq)
+	// nil slice 序列化为 null 会让前端崩溃，统一落 "[]"
+	thoughts := t.thoughts
+	if thoughts == nil {
+		thoughts = []ThoughtEvent{}
+	}
+	cards := t.cards
+	if cards == nil {
+		cards = []CardEnvelope{}
+	}
 	msg := model.ChatMessage{
 		ID: NewID("msg"), SessionID: t.sessionID, Seq: maxSeq + 1,
 		Role: "assistant", Text: t.text.String(),
-		Thoughts: jraw(t.thoughts), Cards: jraw(t.cards), Status: "final",
+		Thoughts: jraw(thoughts), Cards: jraw(cards), Status: "final",
 	}
 	if err := r.db.Create(&msg).Error; err != nil {
 		log.Printf("[agent] persist assistant message: %v", err)

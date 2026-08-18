@@ -6,6 +6,7 @@ import { MonitorTab } from '../components/MonitorTab';
 import { CLUSTERS, TYPE_ICON, INSTANCE_USERS, SESSIONS, TRANSACTIONS, SLOW_SQLS } from '../lib/mockData';
 import { apiGet, apiPost, withFallback } from '../lib/api';
 import { useBreadcrumb } from '../App';
+import { openChatDrawer } from '../lib/chatDrawer';
 import { IconRefresh, IconBolt, IconRobot } from '../components/icons';
 import type { Cluster, Instance } from '../lib/types';
 
@@ -117,7 +118,7 @@ export default function InstanceDetail() {
         </div>
         <div className="detail-head-right">
           <button className="btn" onClick={reload}><IconRefresh size={13} /> 刷新</button>
-          <Link className="btn primary" to="/chat"><IconRobot size={14} /> AI 诊断</Link>
+          <button className="btn primary" onClick={() => openChatDrawer(`诊断 ${inst.name}`)}><IconRobot size={14} /> AI 诊断</button>
         </div>
       </div>
       <div className="tabs">

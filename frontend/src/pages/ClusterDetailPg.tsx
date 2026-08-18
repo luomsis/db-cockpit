@@ -5,6 +5,7 @@ import { TopoSVG, TopoLegend } from '../components/TopoSVG';
 import { MonitorTab } from '../components/MonitorTab';
 import { TYPE_ICON, REPORTS } from '../lib/mockData';
 import { apiGet, apiPost, apiPut, withFallback } from '../lib/api';
+import { openChatDrawer } from '../lib/chatDrawer';
 import type { Cluster, ParamItem } from '../lib/types';
 import { IconRefresh, IconBolt, IconRobot } from '../components/icons';
 
@@ -77,7 +78,7 @@ export default function ClusterDetailPg({ cluster: c, reload }: { cluster: Clust
         </div>
         <div className="detail-head-right">
           <button className="btn" onClick={reload}><IconRefresh size={13} /> 刷新</button>
-          <Link className="btn primary" to="/chat"><IconBolt size={13} /> 智能巡检</Link>
+          <button className="btn primary" onClick={() => openChatDrawer(`诊断 ${c.name}`)}><IconBolt size={13} /> 智能巡检</button>
         </div>
       </div>
       <div className="tabs">

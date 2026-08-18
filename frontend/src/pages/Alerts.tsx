@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { ALERT_INSTANCES } from '../lib/mockData';
 import { apiGet, withFallback } from '../lib/api';
+import { openChatDrawer } from '../lib/chatDrawer';
 import { useBreadcrumb } from '../App';
 import { FilterChips, Pagination, SearchInput, Th } from '../components/tableKit';
 import type { ActiveFilter } from '../components/tableKit';
@@ -41,7 +41,6 @@ function AlertStat({ sev, num, lbl, ico }: { sev: string; num: number; lbl: stri
 
 export default function Alerts() {
   useBreadcrumb([{ label: '首页' }, { label: '告警中心' }]);
-  const navigate = useNavigate();
 
   /* apiserver 告警列表（失败回退本地 mock） */
   const [alerts, setAlerts] = useState<AlertRow[]>(ALERT_INSTANCES);
@@ -77,10 +76,9 @@ export default function Alerts() {
   const rows = filtered.slice((cur - 1) * pageSize, cur * pageSize);
   const cnt = (s: string) => alerts.filter(a => a.severity === s).length;
 
-  /* 问 AI：跳转 /chat 并自动发送诊断 */
+  /* 问 AI：打开侧边浮窗聊天并自动发送诊断 */
   const askAI = (name: string) => {
-    sessionStorage.setItem('alertAskDraft', `诊断 ${name.split(' @ ')[0]}`);
-    navigate('/chat');
+    openChatDrawer(`诊断 ${name.split(' @ ')[0]}`);
   };
 
   return (

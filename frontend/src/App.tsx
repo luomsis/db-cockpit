@@ -112,6 +112,13 @@ function Shell() {
     if (location.pathname === '/chat') setChatOpen(false);
   }, [location.pathname]);
 
+  /* 全局「问 AI」入口：页面派发 open-chat-drawer 事件唤起抽屉 */
+  useEffect(() => {
+    const onOpen = () => setChatOpen(true);
+    window.addEventListener('open-chat-drawer', onOpen);
+    return () => window.removeEventListener('open-chat-drawer', onOpen);
+  }, []);
+
   /* 面包屑不展示首位的「首页」 */
   const crumbs = items.filter((it, i) => !(i === 0 && it.label === '首页'));
 

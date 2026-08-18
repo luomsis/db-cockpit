@@ -15,21 +15,22 @@ export function MessageView({ msg, onAsk }: { msg: ChatMessage; onAsk: (q: strin
       </div>
     );
   }
-  const running = msg.thoughts.some(t => t.status === 'running');
+  const thoughts = msg.thoughts || [];
+  const running = thoughts.some(t => t.status === 'running');
   return (
     <div className="cmsg bot">
       <div className="cmsg-avatar">AI</div>
       <div className="cmsg-content">
-        {msg.thoughts.length > 0 && (
+        {thoughts.length > 0 && (
           <div className={`trace ${traceOpen ? 'open' : ''}`}>
             <div className="trace-head" onClick={() => setTraceOpen(o => !o)}>
               <span className={`trace-arrow ${traceOpen ? 'open' : ''}`}>▸</span>
-              Agent 推理轨迹（{msg.thoughts.length} 次工具调用）
+              Agent 推理轨迹（{thoughts.length} 次工具调用）
               {running && <span className="trace-running"><i></i><i></i><i></i></span>}
             </div>
             {traceOpen && (
               <div className="trace-body">
-                {msg.thoughts.map((t, i) => (
+                {thoughts.map((t, i) => (
                   <div key={i} className="trace-row">
                     <span className={`trace-dot trace-dot-${t.status}`}>{t.status === 'success' ? '✓' : t.status === 'failed' ? '✕' : ''}</span>
                     <span className="trace-tool">{t.tool_name}</span>
@@ -46,7 +47,7 @@ export function MessageView({ msg, onAsk }: { msg: ChatMessage; onAsk: (q: strin
             {msg.status === 'streaming' && <span className="typing"><i></i><i></i><i></i></span>}
           </div>
         )}
-        {msg.cards.map(c => <CardContainer key={c.card_id} card={c} onAsk={onAsk} />)}
+        {(msg.cards || []).map(c => <CardContainer key={c.card_id} card={c} onAsk={onAsk} />)}
       </div>
     </div>
   );

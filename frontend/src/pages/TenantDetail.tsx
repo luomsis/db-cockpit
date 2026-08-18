@@ -5,6 +5,7 @@ import { MonitorTab } from '../components/MonitorTab';
 import { CLUSTERS, SESSIONS, SLOW_SQLS } from '../lib/mockData';
 import { apiGet, apiPost, apiPut, withFallback } from '../lib/api';
 import { useBreadcrumb } from '../App';
+import { openChatDrawer } from '../lib/chatDrawer';
 import { IconRefresh, IconBolt, IconRobot } from '../components/icons';
 import type { ObTenant, ObTenantDb, ParamItem } from '../lib/types';
 
@@ -108,7 +109,7 @@ export default function TenantDetail() {
         </div>
         <div className="detail-head-right">
           <button className="btn" onClick={reload}><IconRefresh size={13} /> 刷新</button>
-          <Link className="btn primary" to="/chat"><IconRobot size={14} /> AI 诊断</Link>
+          <button className="btn primary" onClick={() => openChatDrawer(`诊断 ${t.name}`)}><IconRobot size={14} /> AI 诊断</button>
         </div>
       </div>
       <div className="tabs">

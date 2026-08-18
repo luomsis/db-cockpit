@@ -6,6 +6,7 @@ import { apiGet, withFallback } from '../lib/api';
 import { lineOpt, lockGaugeOpt, TIP, axisStyle } from '../lib/chartOptions';
 import * as echarts from 'echarts';
 import { useBreadcrumb } from '../App';
+import { openChatDrawer } from '../lib/chatDrawer';
 
 interface DbTypeRow { type: string; name: string; icon: string; total: number; alert: number }
 interface AnomalyRow { name: string; cluster: string; score: number; issue: string; inst: string }
@@ -135,7 +136,7 @@ export default function Overview() {
         <div className="card c5">
           <div className="card-head">
             <div className="card-title"><span className="t-ico"></span>慢 SQL TOP5</div>
-            <a className="card-link" href="#/chat">诊断 ›</a>
+            <a className="card-link" onClick={() => openChatDrawer()}>诊断 ›</a>
           </div>
           <div className="sql-list">
             {slowSqls.map(s => (

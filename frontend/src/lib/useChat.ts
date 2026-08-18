@@ -7,6 +7,7 @@ import type { AgentEvent, ChatMessage, ChatSession } from './types';
 import { apiGet, apiPost, apiDelete } from './api';
 import { runMockTurn } from './mockAgent';
 import { loadSessions, persist, newSession, uid } from './chatSessions';
+import { ASK_DRAFT_KEY } from './chatDrawer';
 
 /* 一次性迁移：localStorage 会话导入服务端（仅在服务端为空且本地有数据时） */
 let migrationDone = false;
@@ -32,6 +33,7 @@ export function useChat() {
   });
   const [activeId, setActiveId] = useState<string>(() => loadSessions()[0]?.id ?? '');
   const [streaming, setStreaming] = useState(false);
+  const [ready, setReady] = useState(false); // 服务端会话同步完成（或离线判定）后可消费草稿
   const offlineRef = useRef(false);
   const seqRef = useRef<Record<string, number>>({});
   const esRef = useRef<EventSource | null>(null);
@@ -41,10 +43,14 @@ export function useChat() {
   useEffect(() => {
     (async () => {
       const ok = await ensureMigration();
-      if (!ok) { offlineRef.current = true; return; }
+      if (!ok) { offlineRef.current = true; setReady(true); return; }
       try {
         const list = await apiGet<ChatSession[]>('/api/chat/sessions');
-        const mapped = (list || []).map(s => ({ ...s, messages: s.messages || [] }));
+        // 规范化历史消息：旧数据 thoughts/cards 可能为 null（渲染层数组方法会崩）
+        const mapped = (list || []).map(s => ({
+          ...s,
+          messages: (s.messages || []).map(m => ({ ...m, thoughts: m.thoughts || [], cards: m.cards || [] })),
+        }));
         if (mapped.length) {
           setSessions(mapped);
           setActiveId(cur => (mapped.some(s => s.id === cur) ? cur : mapped[0].id));
@@ -52,6 +58,7 @@ export function useChat() {
       } catch (e) {
         offlineRef.current = true;
       }
+      setReady(true);
     })();
   }, []);
 
@@ -60,6 +67,9 @@ export function useChat() {
 
   const active = sessions.find(s => s.id === activeId) || sessions[0];
   useEffect(() => { if (active && active.id !== activeId) setActiveId(active.id); }, [active, activeId]);
+  /* 最新 active 的引用：避免草稿自动发送等异步回调捕获过期闭包 */
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
   const updateSession = (id: string, fn: (s: ChatSession) => ChatSession) => {
     setSessions(ss => ss.map(s => (s.id === id ? { ...fn(s), updatedAt: Date.now() } : s)));
@@ -121,8 +131,9 @@ export function useChat() {
 
   const send = (text?: string): string | undefined => {
     const q = (text ?? '').trim();
-    if (!q || streaming || !active) return q;
-    const sid = active.id;
+    const act = activeRef.current;
+    if (!q || streaming || !act) return q;
+    const sid = act.id;
     const botId = uid();
     updateSession(sid, s => ({
       ...s,
@@ -197,6 +208,16 @@ export function useChat() {
       return list;
     });
   };
+
+  /* 「问 AI」入口草稿：会话就绪后自动发送（ChatPage/ChatPanel 互斥渲染，仅一处消费） */
+  useEffect(() => {
+    if (!ready) return;
+    const draft = sessionStorage.getItem(ASK_DRAFT_KEY);
+    if (!draft) return;
+    sessionStorage.removeItem(ASK_DRAFT_KEY);
+    send(draft);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
   return { sessions, active, activeId, setActiveId, streaming, send, stop, createSession, removeSession };
 }
