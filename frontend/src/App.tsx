@@ -107,6 +107,11 @@ function Shell() {
   /* 路由切换时重置面包屑（页面挂载后会再设置） */
   useEffect(() => { setItems([{ label: '首页' }]); }, [location.pathname]);
 
+  /* 互斥：进入智能对话页自动收起侧边栏聊天抽屉（悬浮球在该页本就隐藏） */
+  useEffect(() => {
+    if (location.pathname === '/chat') setChatOpen(false);
+  }, [location.pathname]);
+
   /* 面包屑不展示首位的「首页」 */
   const crumbs = items.filter((it, i) => !(i === 0 && it.label === '首页'));
 

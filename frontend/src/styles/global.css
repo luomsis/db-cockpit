@@ -814,29 +814,24 @@ body::before {
   box-shadow: var(--shadow); overflow: hidden;
 }
 
-/* 会话列表侧栏（外层 chatp 为唯一卡片，此处仅右缘分隔） */
+/* 会话列表（右侧，外层 chatp 为唯一卡片，此处仅左缘分隔；折叠收到 0） */
 .chatp-sessions {
   width: 240px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px;
-  border-right: 1px solid var(--border); background: #fff;
-  padding: 12px; transition: width 0.22s ease, padding 0.22s ease;
+  border-left: 1px solid var(--border); background: #fff;
+  padding: 12px; overflow: hidden;
+  transition: width 0.22s ease, padding 0.22s ease, border-left-width 0.22s ease;
 }
-.chatp-sess-head { display: flex; align-items: center; gap: 6px; }
-.chatp-new { flex: 1; }
-.chatp-sess-toggle, .chatp-sess-expand {
-  width: 28px; height: 28px; flex-shrink: 0; border: 1px solid var(--border); border-radius: 7px;
+.chatp-sessions.collapsed { width: 0; padding: 12px 0; border-left-width: 0; }
+
+/* 主区标题栏右侧操作（新建会话 / 折叠列表） */
+.chatp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.chatp-head-ops { display: flex; gap: 6px; }
+.chatp-head-btn {
+  width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 7px;
   background: #fff; color: var(--text-3); cursor: pointer;
   display: grid; place-items: center; transition: all 0.15s; padding: 0;
 }
-.chatp-sess-toggle:hover, .chatp-sess-expand:hover { border-color: var(--blue); color: var(--blue); background: #f0f6ff; }
-.chatp-sess-toggle svg, .chatp-sess-expand svg { width: 14px; height: 14px; }
-
-/* 折叠态：48px 竖条，仅展开按钮 + 竖排提示 */
-.chatp-sessions.collapsed { width: 48px; padding: 10px 6px; align-items: center; gap: 14px; }
-.chatp-sess-vertical {
-  writing-mode: vertical-rl; letter-spacing: 5px; font-size: 11px; color: var(--text-3);
-  user-select: none; cursor: pointer; padding: 8px 0;
-}
-.chatp-sess-vertical:hover { color: var(--blue); }
+.chatp-head-btn:hover { border-color: var(--blue); color: var(--blue); background: #f0f6ff; }
 .chatp-sess-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
 .chatp-sess {
   position: relative; padding: 9px 26px 9px 11px; border-radius: 8px; cursor: pointer;
