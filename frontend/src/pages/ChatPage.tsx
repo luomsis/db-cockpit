@@ -2,15 +2,20 @@ import { useEffect, useRef, useState } from 'react';
 import { MessageView } from '../components/chatParts';
 import { QUICK_QUESTIONS } from '../lib/mockAgent';
 import { useChat } from '../lib/useChat';
-import { IconRobot } from '../components/icons';
+import { IconRobot, IconChevronLeft, IconChevronRight } from '../components/icons';
 import { useBreadcrumb } from '../App';
+
+const COLLAPSED_KEY = 'dbChatSessCollapsed';
 
 /* 完整对话页：会话与流式回复走 apiserver SSE（离线自动回退本地 mock） */
 export default function ChatPage() {
   useBreadcrumb([{ label: '首页' }, { label: '智能对话' }]);
   const { sessions, active, setActiveId, streaming, send, stop, createSession, removeSession } = useChat();
   const [input, setInput] = useState('');
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === '1');
   const bodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0'); }, [collapsed]);
 
   /* 自动滚到底部 */
   useEffect(() => {
@@ -39,24 +44,40 @@ export default function ChatPage() {
 
   return (
     <div className="chatp">
-      {/* 会话列表 */}
-      <aside className="chatp-sessions">
-        <button className="btn sm primary chatp-new" onClick={createSession}>＋ 新会话</button>
-        <div className="chatp-sess-list">
-          {sessions.map(s => (
-            <div key={s.id} className={`chatp-sess ${s.id === active.id ? 'active' : ''}`} onClick={() => setActiveId(s.id)}>
-              <div className="chatp-sess-title">{s.title}</div>
-              <div className="chatp-sess-meta">{s.messages.length} 条消息</div>
-              <button className="chatp-sess-del" title="删除会话"
-                onClick={e => { e.stopPropagation(); removeSession(s.id); }}>✕</button>
+      {/* 会话列表（可向左折叠，状态记忆） */}
+      <aside className={`chatp-sessions${collapsed ? ' collapsed' : ''}`}>
+        {collapsed ? (
+          <>
+            <button className="chatp-sess-expand" title="展开会话列表" onClick={() => setCollapsed(false)}>
+              <IconChevronRight />
+            </button>
+            <div className="chatp-sess-vertical">会话列表</div>
+          </>
+        ) : (
+          <>
+            <div className="chatp-sess-head">
+              <button className="btn sm primary chatp-new" onClick={createSession}>＋ 新会话</button>
+              <button className="chatp-sess-toggle" title="折叠会话列表" onClick={() => setCollapsed(true)}>
+                <IconChevronLeft />
+              </button>
             </div>
-          ))}
-        </div>
-        <div className="chatp-foot-note">已接入 apiserver（SSE 流式）<br />后端不可用时自动回退本地演示</div>
+            <div className="chatp-sess-list">
+              {sessions.map(s => (
+                <div key={s.id} className={`chatp-sess ${s.id === active.id ? 'active' : ''}`} onClick={() => setActiveId(s.id)}>
+                  <div className="chatp-sess-title">{s.title}</div>
+                  <div className="chatp-sess-meta">{s.messages.length} 条消息</div>
+                  <button className="chatp-sess-del" title="删除会话"
+                    onClick={e => { e.stopPropagation(); removeSession(s.id); }}>✕</button>
+                </div>
+              ))}
+            </div>
+            <div className="chatp-foot-note">已接入 apiserver（SSE 流式）<br />后端不可用时自动回退本地演示</div>
+          </>
+        )}
       </aside>
 
       {/* 对话主区 */}
-      <div className="chatp-main card">
+      <div className="chatp-main">
         <div className="chatp-head">
           <div className="chat-head-l">
             <div className="chat-avatar">AI</div>
