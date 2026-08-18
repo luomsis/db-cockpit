@@ -1,0 +1,39 @@
+# ============ DB Cockpit · MVP 部署编排（前端 + apiserver） ============
+# 构建/运行均固定 linux/amd64：在 arm64 Mac 上构建产物即 amd64，
+# 可 docker save 迁移到内网 x86_64 Linux 直接运行。
+#
+# 本地构建运行：  docker compose up -d --build   →  http://localhost:8848
+# 内网部署：      见 deploy/README-部署.md（save → 拷贝 → load → up）
+#
+# 存储：复用宿主机既有 PostgreSQL（postgres-age 容器，宿主机 55432），
+#       不新增 postgres 服务；数据落在独立库 db_cockpit。
+#       未来 agentcluster 就绪后在本文件追加服务（MVP 四容器形态）。
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+    image: db-cockpit-frontend:v0.2.0
+    container_name: db-cockpit-frontend
+    platform: linux/amd64
+    ports:
+      - "8848:80"
+    restart: unless-stopped
+    depends_on:
+      - apiserver
+
+  apiserver:
+    build:
+      context: ./apiserver
+    image: db-cockpit-apiserver:v0.1.0
+    container_name: db-cockpit-apiserver
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      APISERVER_PORT: "8090"
+      # 宿主机既有 PG：容器内经 host.docker.internal 访问（graphiti/graphiti）
+      DB_DSN: "host=host.docker.internal port=55432 user=graphiti password=graphiti dbname=db_cockpit sslmode=disable"
+      AUTH_ENABLED: "false"
+      AGENT_MODE: "builtin"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DB Copilot · 数据库智能运维平台</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-mark">DB</div>
+      <div class="logo-text">
+        <b>DB Copilot</b>
+        <span>数据库智能运维平台</span>
+      </div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="sidebar-foot">
+      <div class="env-dot"></div>
+      <div>
+        <div class="env-name">生产环境 PROD</div>
+        <div class="env-sub">v1.0.0 · 已接入 4 个集群</div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="crumb" id="crumb">
+        <span class="crumb-home">首页</span><span class="crumb-sep">/</span><span class="crumb-cur">运维概览</span>
+      </div>
+      <div class="topbar-right">
+        <div class="search"><span class="ico">⌕</span><input placeholder="搜索集群 / 实例 / SQL…"></div>
+        <button class="icon-btn" title="告警中心"><span class="bell">🔔</span><i class="badge">12</i></button>
+        <div class="avatar">运</div>
+      </div>
+    </header>
+    <main class="content" id="content"></main>
+  </div>
+</div>
+
+<!-- 浮窗 Chat -->
+<button class="chat-fab" id="chatFab" title="AI 运维助手">
+  <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/>
+    <circle cx="9" cy="12" r="1" fill="currentColor"/><circle cx="13.5" cy="12" r="1" fill="currentColor"/>
+  </svg>
+</button>
+<div class="chat-panel" id="chatPanel">
+  <div class="chat-head">
+    <div class="chat-head-l">
+      <div class="chat-avatar">AI</div>
+      <div><b>DB Copilot 助手</b><span class="chat-status"><i></i>在线 · 智能运维</span></div>
+    </div>
+    <button class="chat-close" id="chatClose">✕</button>
+  </div>
+  <div class="chat-body" id="chatBody"></div>
+  <div class="chat-quick" id="chatQuick"></div>
+  <div class="chat-input">
+    <input id="chatInput" placeholder="向 AI 助手提问，如：分析慢 SQL 原因…">
+    <button id="chatSend">发送</button>
+  </div>
+</div>
+
+<script src="js/query.js?v=3"></script>
+<script src="js/app.js?v=3"></script>
+</body>
+</html>

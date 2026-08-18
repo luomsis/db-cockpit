@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# CLI 内部目录
+.zcode/
+
+# 前端构建产物与依赖
+frontend/node_modules/
+frontend/dist/
+frontend/public/version.json
+
+# Go 二进制
+apiserver/apiserver
+
+# 镜像产物（部署时另行分发，不入库）
+deploy/*.tar.gz
+
+# GUI 测试截图
+gui-test-screenshots/
