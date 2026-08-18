@@ -201,11 +201,27 @@ func reportRows() []*model.Report {
 
 func alertRows() []*model.AlertRecord {
 	return []*model.AlertRecord{
-		{Name: "trade_tenant @ prod-ob-core-01", Severity: "P1", Title: "租户 CPU 13.1/14C（阈值 90%）", Time: "14:32", Count: 6},
-		{Name: "pg-order-01（主库）", Severity: "P2", Title: "备库复制延迟 850ms（阈值 300ms）", Time: "14:18", Count: 3},
-		{Name: "pay_tenant @ prod-ob-core-01", Severity: "P2", Title: "租户内存水位 91%", Time: "13:55", Count: 2},
-		{Name: "analytics @ prod-pg-order-01", Severity: "P3", Title: "连接数 410/500 · 慢查询堆积", Time: "12:40", Count: 1},
-		{Name: "observer-zone2-01", Severity: "P3", Title: "OBServer CPU 82% · 建议检查 Unit 均衡", Time: "11:02", Count: 1},
+		/* ---- P1 紧急 ---- */
+		{Name: "trade_tenant @ prod-ob-core-01", Severity: "P1", Title: "租户 CPU 13.1/14C（阈值 90%）", Time: "08-18 14:32", Count: 6},
+		{Name: "prod-pg-order-01（主库）", Severity: "P1", Title: "连接数 962/1000 · 接近上限", Time: "08-18 11:20", Count: 4},
+		/* ---- P2 重要 ---- */
+		{Name: "pg-order-01（主库）", Severity: "P2", Title: "备库复制延迟 850ms（阈值 300ms）", Time: "08-18 14:18", Count: 3},
+		{Name: "pay_tenant @ prod-ob-core-01", Severity: "P2", Title: "租户内存水位 91%", Time: "08-18 13:55", Count: 2},
+		{Name: "analytics @ prod-pg-order-01", Severity: "P2", Title: "连接数 410/500 · 慢查询堆积", Time: "08-18 12:40", Count: 1},
+		{Name: "observer-zone2-01", Severity: "P2", Title: "OBServer CPU 82% · 建议检查 Unit 均衡", Time: "08-18 11:02", Count: 1},
+		{Name: "host-10.20.2.12", Severity: "P2", Title: "磁盘使用率 72% · 持续上升趋势", Time: "08-17 22:10", Count: 2},
+		{Name: "prod-ob-log-01", Severity: "P2", Title: "major 合并耗时超过 2h", Time: "08-17 03:40", Count: 1},
+		/* ---- P3 关注 ---- */
+		{Name: "seckill @ t-trade", Severity: "P3", Title: "慢 SQL 数量突增（+35%/小时）", Time: "08-18 10:15", Count: 5},
+		{Name: "user_center @ prod-pg-order-01", Severity: "P3", Title: "今日死锁 2 次（锁等待连锁）", Time: "08-18 09:40", Count: 2},
+		{Name: "observer-zone1-02", Severity: "P3", Title: "RPC 超时率 0.8%（阈值 1%）", Time: "08-17 18:22", Count: 1},
+		{Name: "host-10.40.1.12", Severity: "P3", Title: "内存使用率 66% · 周环比 +9%", Time: "08-17 14:30", Count: 1},
+		{Name: "log_tenant @ prod-ob-log-01", Severity: "P3", Title: "存储 3.2/8 TB · 40% 水位提醒", Time: "08-17 09:00", Count: 1},
+		{Name: "pg-report-02（备库）", Severity: "P3", Title: "autovacuum 积压 · 磁盘 78%", Time: "08-16 20:30", Count: 2},
+		{Name: "bi_report @ prod-pg-report-02", Severity: "P3", Title: "表膨胀率 38%（建议 VACUUM）", Time: "08-16 16:45", Count: 1},
+		{Name: "prod-ob-core-01", Severity: "P3", Title: "系统租户内存 11/48G · 预留水位提示", Time: "08-16 08:15", Count: 1},
+		{Name: "metrics_cache @ prod-pg-report-02", Severity: "P3", Title: "空闲连接占比偏高（60/150）", Time: "08-16 11:05", Count: 1},
+		{Name: "observer-zone3-01", Severity: "P3", Title: "副本追赶延迟 1.2s · 观察中", Time: "08-17 07:55", Count: 1},
 	}
 }
 

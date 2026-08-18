@@ -333,7 +333,22 @@ func (t *turn) scenarioAlerts() {
 	var alerts []model.AlertRecord
 	t.db.Order("id asc").Find(&alerts)
 	t.emitCard("create", alertsTableCard(alerts))
-	text := fmt.Sprintf("当前共有 %d 个实例处于告警状态，其中 P1 级别 1 个：trade_tenant @ prod-ob-core-01（租户 CPU 13.1/14C，疑似全表扫描导致）。\n\n建议优先处理 P1，可直接对我说「诊断 trade_tenant」。", len(alerts))
+	// 按级别统计，P1 取首条作为重点提示
+	cnt := map[string]int{}
+	var topP1 *model.AlertRecord
+	for i := range alerts {
+		cnt[alerts[i].Severity]++
+		if alerts[i].Severity == "P1" && topP1 == nil {
+			topP1 = &alerts[i]
+		}
+	}
+	var text string
+	if topP1 != nil {
+		text = fmt.Sprintf("当前共 %d 条活跃告警（P1 %d / P2 %d / P3 %d）。最高优先级：%s — %s。\n\n建议优先处理 P1，可直接对我说「诊断 %s」。",
+			len(alerts), cnt["P1"], cnt["P2"], cnt["P3"], topP1.Name, topP1.Title, topP1.Name)
+	} else {
+		text = fmt.Sprintf("当前共 %d 条活跃告警（P1 0 / P2 %d / P3 %d），无 P1 级紧急告警。", len(alerts), cnt["P2"], cnt["P3"])
+	}
 	t.say(text, 24)
 	t.emit(DoneEvent{Type: "done"})
 }

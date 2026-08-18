@@ -6,6 +6,7 @@ import Clusters from './pages/Clusters';
 import ClusterDetail from './pages/ClusterDetail';
 import InstanceDetail from './pages/InstanceDetail';
 import Hosts from './pages/Hosts';
+import Alerts from './pages/Alerts';
 import Dashboards, { DashboardEntry } from './pages/Dashboards';
 import DashboardView from './pages/DashboardView';
 import TenantDetail from './pages/TenantDetail';
@@ -55,6 +56,7 @@ const NAV = [
   { path: '/overview', Ico: IconOverview, label: '概览' },
   { path: '/clusters', Ico: IconCluster, label: '集群' },
   { path: '/hosts', Ico: IconHost, label: '主机' },
+  { path: '/alerts', Ico: IconBell, label: '告警' },
   { path: '/dashboards', Ico: IconDashboard, label: '监控大盘' },
   { path: '/chat', Ico: IconChat, label: '智能对话' },
 ];
@@ -157,7 +159,7 @@ function Shell() {
             </div>
             <div className="topbar-right">
               <div className="search"><span className="ico"><IconSearch /></span><input placeholder="搜索集群 / 实例 / SQL…" /></div>
-              <button className="icon-btn" title="告警中心"><span className="bell"><IconBell /></span><i className="badge">{alertTotal}</i></button>
+              <Link className="icon-btn" to="/alerts" title="告警中心"><span className="bell"><IconBell /></span><i className="badge">{alertTotal}</i></Link>
               <div className="avatar">运</div>
             </div>
           </header>
@@ -169,8 +171,9 @@ function Shell() {
               <Route path="/cluster/:cid" element={<ClusterDetail />} />
               <Route path="/tenant/:cid/:tid" element={<TenantDetail />} />
               <Route path="/instance/:cid/:iid" element={<InstanceDetail />} />
-              <Route path="/hosts" element={<Hosts />} />
-              <Route path="/dashboards" element={<DashboardEntry />} />
+                <Route path="/hosts" element={<Hosts />} />
+                <Route path="/alerts" element={<Alerts />} />
+                <Route path="/dashboards" element={<DashboardEntry />} />
               <Route path="/dashboards/list" element={<Dashboards />} />
               <Route path="/dashboard/:id" element={<DashboardView />} />
               <Route path="/dashboard" element={<Navigate to="/dashboards" replace />} />
