@@ -6,6 +6,8 @@ import { MonitorTab } from '../components/MonitorTab';
 import { TYPE_ICON, REPORTS } from '../lib/mockData';
 import { apiGet, apiPost, apiPut, withFallback } from '../lib/api';
 import { openChatDrawer } from '../lib/chatDrawer';
+import { useOpDialog, runOp } from '../components/opDialog';
+import { toast } from '../lib/toast';
 import type { Cluster, ObTenant, ParamItem } from '../lib/types';
 import { IconRefresh, IconBolt, IconRobot } from '../components/icons';
 
@@ -38,28 +40,35 @@ export default function ClusterDetailOb({ cluster: c, reload }: { cluster: Clust
     return () => { alive = false; };
   }, [c.id]);
 
-  const createTenant = async () => {
-    const name = window.prompt('租户名称');
-    if (!name?.trim()) return;
-    const cpu = Number(window.prompt('Unit CPU 上限（C）', '4') || '4');
-    await apiPost(`/api/clusters/${c.id}/tenants`, { name: name.trim(), maxCpu: cpu || 4 }).catch(() => { });
-    reload();
-  };
-  const resizeTenant = async (t: ObTenant) => {
-    const cpu = window.prompt(`扩缩容 ${t.name}：Unit CPU 上限（当前 ${t.maxCpu}C）`, String(t.maxCpu + 2));
-    if (cpu === null) return;
-    const v = Number(cpu);
-    if (!Number.isFinite(v) || v <= 0) return;
-    if (!window.confirm(`确认将 ${t.name} Unit CPU 调整为 ${v}C？`)) return;
-    await apiPost(`/api/tenants/${t.id}/resize`, { maxCpu: v }).catch(() => { });
-    reload();
-  };
-  const editParam = async (p: ParamItem) => {
-    const value = window.prompt(`修改参数 ${p.name}（范围 ${p.range}）`, p.value);
-    if (value === null || value === p.value) return;
-    await apiPut(`/api/clusters/${c.id}/params/${encodeURIComponent(p.name)}`, { value }).catch(() => { });
-    reload();
-  };
+  const ops = useOpDialog();
+
+  const createTenant = () => ops.prompt(`创建租户（${c.name}）`, [
+    { key: 'name', label: '租户名称', placeholder: '如 marketing_tenant', required: true },
+    { key: 'maxCpu', label: 'Unit CPU 上限（C）', initial: '4', required: true },
+  ], v => {
+    const cpu = Number(v.maxCpu);
+    if (!Number.isFinite(cpu) || cpu <= 0) { toast.error('CPU 上限需为正数'); return; }
+    runOp(`租户 ${v.name} 已创建（${cpu}C）`, () =>
+      apiPost(`/api/clusters/${c.id}/tenants`, { name: v.name, maxCpu: cpu }), reload);
+  }, '创建');
+
+  const resizeTenant = (t: ObTenant) => ops.prompt(`Unit 扩缩容（${t.name}）`, [
+    { key: 'maxCpu', label: `Unit CPU 上限（当前 ${t.maxCpu}C）`, initial: String(t.maxCpu + 2), required: true, hint: '在线生效，按 Zone 同步下发到每个 Unit' },
+  ], v => {
+    const cpu = Number(v.maxCpu);
+    if (!Number.isFinite(cpu) || cpu <= 0) { toast.error('CPU 上限需为正数'); return; }
+    if (cpu === t.maxCpu) { toast.info('CPU 上限未变化'); return; }
+    runOp(`${t.name} Unit CPU 已调整为 ${cpu}C`, () =>
+      apiPost(`/api/tenants/${t.id}/resize`, { maxCpu: cpu }), reload);
+  });
+
+  const editParam = (p: ParamItem) => ops.prompt(`修改参数 ${p.name}`, [
+    { key: 'value', label: `新值（范围 ${p.range}）`, initial: p.value, required: true, hint: p.desc },
+  ], v => {
+    if (v.value === p.value) { toast.info('参数值未变化'); return; }
+    runOp(`参数 ${p.name} 已修改，待工单下发`, () =>
+      apiPut(`/api/clusters/${c.id}/params/${encodeURIComponent(p.name)}`, { value: v.value }), reload);
+  });
   const showHistory = async (name: string) => {
     if (histFor === name) { setHistFor(null); return; }
     setHistFor(name);
@@ -105,7 +114,7 @@ export default function ClusterDetailOb({ cluster: c, reload }: { cluster: Clust
           <div className="card">
             <div className="card-head">
               <div className="card-title"><span className="t-ico"></span>OBServer 健康摘要</div>
-              <span className="card-sub">合并状态：IDLE（上次每日合并 04:30 完成）</span>
+              <span className="card-sub">合并状态：IDLE（上次每日合并 04:30 完成 · 示例）</span>
             </div>
             <table className="tbl">
               <thead><tr><th>OBServer</th><th>Zone</th><th>地址</th><th>版本</th><th>CPU</th><th>内存</th><th>活跃连接</th><th>状态</th></tr></thead>
@@ -121,6 +130,7 @@ export default function ClusterDetailOb({ cluster: c, reload }: { cluster: Clust
                     <td>{i.conn}</td><td><Pill st={i.status} /></td>
                   </tr>
                 ))}
+              {!c.instances.length && <tr><td colSpan={8}><div className="empty" style={{ padding: '32px 0' }}>暂无 OBServer</div></td></tr>}
               </tbody>
             </table>
           </div>
@@ -170,6 +180,7 @@ export default function ClusterDetailOb({ cluster: c, reload }: { cluster: Clust
                     </td>
                   </tr>
                 ))}
+              {!tenants.length && <tr><td colSpan={9}><div className="empty" style={{ padding: '32px 0' }}>暂无租户，点击右上角创建</div></td></tr>}
               </tbody>
             </table>
             <div className="advice">
@@ -210,6 +221,7 @@ export default function ClusterDetailOb({ cluster: c, reload }: { cluster: Clust
                     </td>
                   </tr>
                 )))}
+              {!tenants.flatMap(t => t.units).length && <tr><td colSpan={5}><div className="empty" style={{ padding: '32px 0' }}>暂无 Unit 资源池</div></td></tr>}
               </tbody>
             </table>
           </div>
@@ -272,6 +284,7 @@ export default function ClusterDetailOb({ cluster: c, reload }: { cluster: Clust
           ))}
         </div>
       )}
+      {ops.view}
     </>
   );
 }

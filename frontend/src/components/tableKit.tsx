@@ -37,10 +37,11 @@ export function FilterSelect({ label, value, options, onChange }:
   );
 }
 
-/* ---------- 列头过滤：列名旁漏斗图标，点击弹出下拉；选中后图标高亮 ---------- */
-export function Th({ children, filter }: {
+/* ---------- 列头过滤：列名旁漏斗图标，点击弹出下拉；选中后图标高亮；可选排序列头 ---------- */
+export function Th({ children, filter, sort }: {
   children?: ReactNode;
   filter?: { value: string; options: FilterOption[]; onChange: (v: string) => void };
+  sort?: { active: boolean; dir: 1 | -1; onSort: () => void };
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -56,7 +57,13 @@ export function Th({ children, filter }: {
   return (
     <th>
       <div className="th-inner" ref={ref}>
-        <span className="th-label">{children}</span>
+        {sort ? (
+          <span className={`th-sort${sort.active ? ' on' : ''}`} onClick={sort.onSort} title="点击排序">
+            {children}<i>{sort.active ? (sort.dir === 1 ? '↑' : '↓') : '↕'}</i>
+          </span>
+        ) : (
+          <span className="th-label">{children}</span>
+        )}
         {filter && (
           <span className="th-filter-slot">
             <button className={`th-filter${filter.value ? ' active' : ''}`} title="筛选"

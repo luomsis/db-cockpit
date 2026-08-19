@@ -25,7 +25,14 @@ export const apiPost = <T>(path: string, payload?: unknown) => request<T>(path, 
 export const apiPut = <T>(path: string, payload?: unknown) => request<T>(path, jsonInit('PUT', payload));
 export const apiDelete = <T>(path: string) => request<T>(path, jsonInit('DELETE'));
 
-/* mock 兜底：请求失败时返回 fallback()，演示环境后端可停机 */
+/* mock 兜底：请求失败时返回 fallback()，并广播离线事件（顶栏显示「离线演示数据」徽标，恢复后消失） */
 export async function withFallback<T>(p: Promise<T>, fallback: () => T): Promise<T> {
-  try { return await p; } catch (e) { return fallback(); }
+  try {
+    const r = await p;
+    window.dispatchEvent(new Event('api-online'));
+    return r;
+  } catch (e) {
+    window.dispatchEvent(new Event('api-offline'));
+    return fallback();
+  }
 }

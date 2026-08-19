@@ -238,4 +238,3 @@ export function runMockTurn(text: string, emit: Emit): MockTurnHandle {
 }
 
 export const QUICK_QUESTIONS = ['当前有哪些告警实例？', '诊断 prod-ob-core-01 的 trade_tenant', 'QPS 趋势怎么样？'];
-export { SLOW_SQLS };

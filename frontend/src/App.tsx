@@ -14,12 +14,32 @@ import ChatPage from './pages/ChatPage';
 import { ChatPanel } from './components/ChatPanel';
 import { ApiProvider, setQueryProvider } from './lib/query';
 import { apiGet, withFallback } from './lib/api';
+import { ToastHost } from './lib/toast';
 import { IconOverview, IconCluster, IconHost, IconDashboard, IconChat, IconSearch, IconBell } from './components/icons';
 
 /* 后端就绪：大盘查询切到 apiserver（失败自动回退 mock） */
 setQueryProvider(ApiProvider);
 
-/* 全局错误边界：运行时错误直接显示在页面上（开发期定位问题） */
+/* 离线演示徽标：任一请求回退 mock 时显示，恢复后隐藏 */
+function OfflineBadge() {
+  const [offline, setOffline] = useState(false);
+  useEffect(() => {
+    let timer: any = null;
+    const onOff = () => setOffline(true);
+    const onOn = () => { if (timer) clearTimeout(timer); timer = setTimeout(() => setOffline(false), 1500); };
+    window.addEventListener('api-offline', onOff);
+    window.addEventListener('api-online', onOn);
+    return () => {
+      window.removeEventListener('api-offline', onOff);
+      window.removeEventListener('api-online', onOn);
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+  if (!offline) return null;
+  return <span className="offline-badge" title="apiserver 不可达，当前展示本地演示数据">离线演示数据</span>;
+}
+
+/* 全局错误边界：错误信息 + 重试 / 返回首页 */
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
   static getDerivedStateFromError(error: Error) { return { error }; }
@@ -29,7 +49,11 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
         <div style={{ padding: 24, fontFamily: 'Menlo, monospace', whiteSpace: 'pre-wrap' }}>
           <h2 style={{ color: '#f53f3f' }}>页面渲染出错</h2>
           <div>{this.state.error.message}</div>
-          <pre style={{ marginTop: 12, fontSize: 12, color: '#4e5d78' }}>{this.state.error.stack}</pre>
+          <pre style={{ marginTop: 12, fontSize: 12, color: '#4e5d78', maxHeight: 200, overflow: 'auto' }}>{this.state.error.stack}</pre>
+          <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+            <button className="btn sm primary" onClick={() => location.reload()}>↻ 重试</button>
+            <a className="btn sm" href="#/overview" onClick={() => location.reload()}>返回首页</a>
+          </div>
         </div>
       );
     }
@@ -137,7 +161,7 @@ function Shell() {
             {NAV.map(n => (
               <Link key={n.path} to={n.path}
                 className={location.pathname === n.path || (n.path === '/dashboards' && location.pathname.startsWith('/dashboard')) ? 'active' : ''}>
-                <span className="ico"><n.Ico size={17} /></span>{n.label}
+                <span className="ico"><n.Ico size={17} /></span><span className="nav-label">{n.label}</span>
               </Link>
             ))}
           </nav>
@@ -171,6 +195,7 @@ function Shell() {
             </div>
             <div className="topbar-right">
               <div className="search"><span className="ico"><IconSearch /></span><input placeholder="搜索集群 / 实例 / SQL…" /></div>
+              <OfflineBadge />
               <Link className="icon-btn" to="/alerts" title="告警中心"><span className="bell"><IconBell /></span><i className="badge">{alertTotal}</i></Link>
               <div className="avatar">运</div>
             </div>
@@ -204,6 +229,7 @@ function Shell() {
           )}
           {chatOpen && <ChatPanel onClose={() => setChatOpen(false)} />}
         </div>
+        <ToastHost />
       </div>
     </CrumbCtx.Provider>
   );

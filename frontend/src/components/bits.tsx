@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom';
 import { STATUS_MAP, DB_TYPES, EXTRA_TYPE_NAME } from '../lib/mockData';
 
 export function Pill({ st, text }: { st: string; text?: string }) {
@@ -19,8 +18,4 @@ export function Bar({ value, hot }: { value: number; hot?: boolean }) {
 
 export function Stat({ num, lbl, cls }: { num: any; lbl: string; cls?: string }) {
   return <div className="stat"><div className={`num ${cls || ''}`}>{num}</div><div className="lbl">{lbl}</div></div>;
-}
-
-export function LinkA({ to, children }: { to: string; children: React.ReactNode }) {
-  return <Link to={to} style={{ color: 'var(--blue)', textDecoration: 'none' }}>{children}</Link>;
 }

@@ -56,12 +56,23 @@ export default function Alerts() {
   const [fKind, setFKind] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  /* 列排序：级别 / 首次触发 / 次数（升 → 降 → 取消） */
+  const [sortKey, setSortKey] = useState<'severity' | 'time' | 'count' | ''>('');
+  const [sortDir, setSortDir] = useState<1 | -1>(1);
+  const sortBy = (k: 'severity' | 'time' | 'count') => {
+    if (sortKey !== k) { setSortKey(k); setSortDir(1); return; }
+    if (sortDir === 1) { setSortDir(-1); return; }
+    setSortKey(''); setSortDir(1);
+  };
 
   const kinds = Array.from(new Set(alerts.map(a => kindOf(a.name))));
   const filtered = alerts.filter(a =>
     (!kw.trim() || (a.name + ' ' + a.title).toLowerCase().includes(kw.trim().toLowerCase()))
     && (!fSev || a.severity === fSev)
     && (!fKind || kindOf(a.name) === fKind));
+  const sorted = sortKey
+    ? [...filtered].sort((a, b) => ((a[sortKey] > b[sortKey] ? 1 : a[sortKey] < b[sortKey] ? -1 : 0)) * sortDir)
+    : filtered;
 
   useEffect(() => { setPage(1); }, [kw, fSev, fKind]);
 
@@ -73,7 +84,7 @@ export default function Alerts() {
   const total = filtered.length;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const cur = Math.min(page, pageCount);
-  const rows = filtered.slice((cur - 1) * pageSize, cur * pageSize);
+  const rows = sorted.slice((cur - 1) * pageSize, cur * pageSize);
   const cnt = (s: string) => alerts.filter(a => a.severity === s).length;
 
   /* 问 AI：打开侧边浮窗聊天并自动发送诊断 */
@@ -103,11 +114,11 @@ export default function Alerts() {
           <thead>
             <tr>
               <Th>告警对象</Th>
-              <Th filter={{ value: fSev, options: SEV_OPTS, onChange: setFSev }}>级别</Th>
+              <Th filter={{ value: fSev, options: SEV_OPTS, onChange: setFSev }} sort={{ active: sortKey === "severity", dir: sortDir, onSort: () => sortBy("severity") }}>级别</Th>
               <Th>告警内容</Th>
               <Th filter={{ value: fKind, options: kinds.map(k => ({ value: k, label: k })), onChange: setFKind }}>对象类型</Th>
-              <Th>首次触发</Th>
-              <Th>次数</Th>
+              <Th sort={{ active: sortKey === "time", dir: sortDir, onSort: () => sortBy("time") }}>首次触发</Th>
+              <Th sort={{ active: sortKey === "count", dir: sortDir, onSort: () => sortBy("count") }}>次数</Th>
               <th style={{ width: 72 }}>操作</th>
             </tr>
           </thead>

@@ -100,7 +100,7 @@ export default function DashboardView() {
             <input type="checkbox" checked={dash.cfg.compareYesterday} onChange={e => setCfg({ compareYesterday: e.target.checked })} /> 对比昨日
           </label>
           <button className="btn sm primary" onClick={() => setEditorFor({ panel: blankPanel(), editing: false })}>+ 添加面板</button>
-          <span className="card-sub">{visible.length} 个面板 · 布局与配置保存在本地浏览器</span>
+          <span className="card-sub">{visible.length} 个面板 · 配置经 apiserver 持久化</span>
         </div>
       </div>
 

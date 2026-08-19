@@ -4,9 +4,12 @@ import { Pill, TypeTag, Bar, Stat } from '../components/bits';
 import { MonitorTab } from '../components/MonitorTab';
 import { CLUSTERS, SESSIONS, SLOW_SQLS } from '../lib/mockData';
 import { apiGet, apiPost, apiPut, withFallback } from '../lib/api';
+import { useOpDialog, runOp } from '../components/opDialog';
+import { Overlay } from '../components/dialogs';
+import { toast } from '../lib/toast';
 import { useBreadcrumb } from '../App';
 import { openChatDrawer } from '../lib/chatDrawer';
-import { IconRefresh, IconBolt, IconRobot } from '../components/icons';
+import { IconRefresh, IconRobot } from '../components/icons';
 import type { ObTenant, ObTenantDb, ParamItem } from '../lib/types';
 
 interface SessionRow { id: number; user: string; host: string; db: string; cmd: string; time: string; state: string; lock: string; status: string }
@@ -33,6 +36,7 @@ export default function TenantDetail() {
   const [sqls, setSqls] = useState<SlowSqlRow[]>(SLOW_SQLS);
   const [tab, setTab] = useState('overview');
   const [diagSql, setDiagSql] = useState<number | null>(null);
+  const [viewSql, setViewSql] = useState<SlowSqlRow | null>(null);
 
   const reload = useCallback(() => {
     if (!cid || !tid) return;
@@ -62,32 +66,36 @@ export default function TenantDetail() {
 
   if (!c || !t) { navigate('/clusters', { replace: true }); return null; }
 
-  /* ---- 写操作 ---- */
-  const resize = async () => {
-    const cpu = window.prompt(`Unit 扩缩容：CPU 上限（当前 ${t.maxCpu}C）`, String(t.maxCpu + 2));
-    if (cpu === null) return;
-    const v = Number(cpu);
-    if (!Number.isFinite(v) || v <= 0) return;
-    await apiPost(`/api/tenants/${t.id}/resize`, { maxCpu: v }).catch(() => { });
-    reload();
-  };
-  const createDb = async () => {
-    const name = window.prompt('数据库名称');
-    if (!name?.trim()) return;
-    await apiPost(`/api/tenants/${t.id}/databases`, { name: name.trim() }).catch(() => { });
-    reload();
-  };
-  const killSession = async (s: SessionRow) => {
-    if (!window.confirm(`确认 Kill 会话 ${s.id}（${s.user}）？`)) return;
-    await apiPost(`/api/tenants/${t.id}/sessions/${s.id}/kill`).catch(() => { });
-    reload();
-  };
-  const editParam = async (p: ParamItem) => {
-    const value = window.prompt(`修改参数 ${p.name}（范围 ${p.range === '—' ? '见说明' : p.range}）`, p.value);
-    if (value === null || value === p.value) return;
-    await apiPut(`/api/tenants/${t.id}/params/${encodeURIComponent(p.name)}`, { value }).catch(() => { });
-    reload();
-  };
+  /* ---- 写操作（页内弹窗 + toast 反馈） ---- */
+  const ops = useOpDialog();
+
+  const resize = () => ops.prompt(`Unit 扩缩容（${t.name}）`, [
+    { key: 'maxCpu', label: `Unit CPU 上限（当前 ${t.maxCpu}C）`, initial: String(t.maxCpu + 2), required: true, hint: '在线生效，按 Zone 同步下发到每个 Unit' },
+  ], v => {
+    const cpu = Number(v.maxCpu);
+    if (!Number.isFinite(cpu) || cpu <= 0) { toast.error('CPU 上限需为正数'); return; }
+    if (cpu === t.maxCpu) { toast.info('CPU 上限未变化'); return; }
+    runOp(`${t.name} Unit CPU 已调整为 ${cpu}C`, () =>
+      apiPost(`/api/tenants/${t.id}/resize`, { maxCpu: cpu }), reload);
+  });
+
+  const createDb = () => ops.prompt(`创建数据库（租户 ${t.name}）`, [
+    { key: 'name', label: '数据库名称', placeholder: '如 marketing', required: true },
+  ], v => runOp(`数据库 ${v.name} 已创建`, () =>
+    apiPost(`/api/tenants/${t.id}/databases`, { name: v.name }), reload), '创建');
+
+  const killSession = (s: SessionRow) => ops.confirm('Kill 会话', `确认 Kill 会话 ${s.id}（${s.user}）？该操作将终止其执行。`, () =>
+    runOp(`会话 ${s.id} 已终止`, () => apiPost(`/api/tenants/${t.id}/sessions/${s.id}/kill`), reload),
+    { okText: 'Kill', danger: true });
+
+  const editParam = (p: ParamItem) => ops.prompt(`修改参数 ${p.name}`, [
+    { key: 'value', label: `新值（范围 ${p.range === '—' ? '见说明' : p.range}）`, initial: p.value, required: true, hint: p.desc },
+  ], v => {
+    if (v.value === p.value) { toast.info('参数值未变化'); return; }
+    runOp(`参数 ${p.name} 已修改，待工单下发`, () =>
+      apiPut(`/api/tenants/${t.id}/params/${encodeURIComponent(p.name)}`, { value: v.value }), reload);
+  });
+
   const diagnose = (i: number) => setDiagSql(i);
 
   return (
@@ -157,6 +165,7 @@ export default function TenantDetail() {
                     <td>{u.zone === t.primaryZone ? <Pill st="info" text="LEADER 优先" /> : <Pill st="ok" text="FOLLOWER" />}</td>
                   </tr>
                 ))}
+              {!t.units.length && <tr><td colSpan={5}><div className="empty" style={{ padding: '32px 0' }}>暂无 Unit 资源池</div></td></tr>}
               </tbody>
             </table>
           </div>
@@ -201,6 +210,7 @@ export default function TenantDetail() {
                   <td><span style={{ color: 'var(--blue)', cursor: 'pointer' }}>会话</span> · <span style={{ color: 'var(--blue)', cursor: 'pointer' }}>备份</span></td>
                 </tr>
               ))}
+            {!dbs.length && <tr><td colSpan={6}><div className="empty" style={{ padding: '32px 0' }}>暂无数据库，点击右上角创建</div></td></tr>}
             </tbody>
           </table>
         </div>
@@ -229,6 +239,7 @@ export default function TenantDetail() {
                     : <span className="card-sub">—</span>}</td>
                 </tr>
               ))}
+            {!sessions.length && <tr><td colSpan={9}><div className="empty" style={{ padding: '32px 0' }}>暂无活跃会话</div></td></tr>}
             </tbody>
           </table>
         </div>
@@ -245,11 +256,12 @@ export default function TenantDetail() {
             <tbody>
               {sqls.map((s, i) => (
                 <tr key={i}>
-                  <td className="mono" style={{ maxWidth: 380, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.sql}</td>
+                  <td className="mono sql-cell" title="点击查看完整 SQL" onClick={() => setViewSql(s)} style={{ maxWidth: 380, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.sql}</td>
                   <td>{s.db}</td><td style={{ color: 'var(--amber)' }}>{s.time}</td><td>{s.rows}</td><td>{s.count}</td>
                   <td><span style={{ color: 'var(--blue)', cursor: 'pointer' }} onClick={() => diagnose(i)}>AI 诊断</span></td>
                 </tr>
               ))}
+            {!sqls.length && <tr><td colSpan={6}><div className="empty" style={{ padding: '32px 0' }}>暂无慢 SQL 记录</div></td></tr>}
             </tbody>
           </table>
           {diagSql != null && (
@@ -289,6 +301,20 @@ export default function TenantDetail() {
           </table>
         </div>
       )}
+      {viewSql && (
+        <Overlay onClose={() => setViewSql(null)}>
+          <div className="dap-head">SQL 指纹</div>
+          <div className="dap-body">
+            <pre className="sql-view">{viewSql.sql}</pre>
+            <div className="sql-view-meta">库 {viewSql.db} · 平均耗时 {viewSql.time} · 扫描 {viewSql.rows} 行 · 日均 {viewSql.count} 次</div>
+          </div>
+          <div className="dap-foot">
+            <button className="btn sm" onClick={() => setViewSql(null)}>关闭</button>
+            <button className="btn sm primary" onClick={() => { navigator.clipboard?.writeText(viewSql.sql).then(() => toast.success('SQL 已复制')).catch(() => toast.error('复制失败')); }}>复制</button>
+          </div>
+        </Overlay>
+      )}
+      {ops.view}
     </>
   );
 }

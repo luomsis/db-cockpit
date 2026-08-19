@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { InfoDialog, ConfirmDialog } from '../components/dialogs';
+import { InfoDialog, ConfirmDialog, MenuPopover } from '../components/dialogs';
 import { loadDashboards, saveDashboards, normalizeDashboard, relTime, serverInit, serverCreate, serverUpdate, serverDelete } from '../lib/dashboards';
 import type { Dashboard } from '../lib/types';
 import { IconSearch } from '../components/icons';
+import { toast } from '../lib/toast';
 import { useBreadcrumb } from '../App';
 
 /* /dashboards 入口：默认直达「默认大盘」（服务端同步后跳转） */
@@ -39,8 +40,8 @@ export default function Dashboards() {
   const createDashboard = async (title: string, description: string) => {
     try {
       const d = await serverCreate(title, description);
-      if (d) { refresh(); navigate(`/dashboard/${d.id}`); return; }
-    } catch (e) { /* 落回本地 */ }
+      if (d) { toast.success(`大盘「${title}」已创建`); refresh(); navigate(`/dashboard/${d.id}`); return; }
+    } catch (e) { /* 落回本地 */ toast.info('apiserver 不可达，大盘已保存到本地'); }
     const now = Date.now();
     const d = normalizeDashboard({ id: 'd' + now, title, description, cfg: { range: '24h', refresh: '0', compareYesterday: false }, panels: [], createdAt: now, updatedAt: now })!;
     const arr = loadDashboards(); arr.push(d); saveDashboards(arr);
@@ -51,11 +52,12 @@ export default function Dashboards() {
   const duplicate = async (d: Dashboard) => {
     try {
       const copy = await serverCreate(d.title + ' 副本', d.description, JSON.parse(JSON.stringify(d.cfg)), JSON.parse(JSON.stringify(d.panels)));
-      if (copy) { refresh(); return; }
+      if (copy) { toast.success(`已创建「${d.title}」副本`); refresh(); return; }
     } catch (e) { /* 落回本地 */ }
     const now = Date.now();
     const copy = normalizeDashboard({ id: 'd' + now, title: d.title + ' 副本', description: d.description, cfg: JSON.parse(JSON.stringify(d.cfg)), panels: JSON.parse(JSON.stringify(d.panels)), createdAt: now, updatedAt: now })!;
     const arr = loadDashboards(); arr.push(copy); saveDashboards(arr);
+    toast.success(`已创建「${d.title}」副本（本地）`);
     refresh();
   };
 
@@ -108,7 +110,10 @@ export default function Dashboards() {
             const arr = loadDashboards();
             const idx = arr.findIndex(x => x.id === metaDialog.dash.id);
             if (idx >= 0) { arr[idx] = { ...arr[idx], title, description, updatedAt: Date.now() }; saveDashboards(arr); }
-            serverUpdate(metaDialog.dash.id, { title, description }).catch(() => { }).finally(() => refresh());
+            serverUpdate(metaDialog.dash.id, { title, description })
+              .then(() => toast.success('大盘信息已更新'))
+              .catch(() => toast.info('apiserver 不可达，信息已保存到本地'))
+              .finally(() => refresh());
             setMetaDialog(null);
           }}
           onClose={() => setMetaDialog(null)} />
@@ -118,7 +123,10 @@ export default function Dashboards() {
           message={`确定删除大盘「${delDash.title}」吗？该操作不可恢复。`}
           onOk={() => {
             saveDashboards(loadDashboards().filter(x => x.id !== delDash.id));
-            serverDelete(delDash.id).catch(() => { }).finally(() => refresh());
+            serverDelete(delDash.id)
+              .then(() => toast.success(`已删除大盘「${delDash.title}」`))
+              .catch(() => { /* 本地已删，服务端失败静默 */ })
+              .finally(() => refresh());
             setDelDash(null);
           }}
           onClose={() => setDelDash(null)} />
@@ -127,18 +135,12 @@ export default function Dashboards() {
   );
 }
 
-/* 卡片 ⋯ 菜单（相对卡片定位；hover 卡片提升层叠，避免被相邻卡片遮挡） */
+/* 卡片 ⋯ 菜单（复用 MenuPopover：点击外部自动关闭） */
 function CardMenu({ items }: { items: { label: string; onClick: () => void }[] }) {
   const [open, setOpen] = useState(false);
   return (
     <span style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
-      {open && (
-        <div className="dash-card-popover" style={{ position: 'absolute', top: 20, right: 0 }}>
-          {items.map(it => (
-            <button key={it.label} className="exp-more-item" onClick={() => { setOpen(false); it.onClick(); }}>{it.label}</button>
-          ))}
-        </div>
-      )}
+      {open && <MenuPopover items={items} onClose={() => setOpen(false)} style={{ position: 'absolute', top: 20, right: 0 }} />}
       <span className="dash-card-menu" title="管理" onClick={e => { e.stopPropagation(); setOpen(o => !o); }}>⋯</span>
     </span>
   );

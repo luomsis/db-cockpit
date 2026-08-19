@@ -6,6 +6,8 @@ import { MonitorTab } from '../components/MonitorTab';
 import { TYPE_ICON, REPORTS } from '../lib/mockData';
 import { apiGet, apiPost, apiPut, withFallback } from '../lib/api';
 import { openChatDrawer } from '../lib/chatDrawer';
+import { useOpDialog, runOp } from '../components/opDialog';
+import { toast } from '../lib/toast';
 import type { Cluster, ParamItem } from '../lib/types';
 import { IconRefresh, IconBolt, IconRobot } from '../components/icons';
 
@@ -34,30 +36,32 @@ export default function ClusterDetailPg({ cluster: c, reload }: { cluster: Clust
     return () => { alive = false; };
   }, [c.id]);
 
-  /* ---- 写操作（apiserver 真实变更，失败静默保持演示） ---- */
-  const createDatabase = async () => {
-    const name = window.prompt('数据库名称');
-    if (!name?.trim()) return;
-    const owner = window.prompt('Owner（留空默认 app_rw）', 'app_rw') || 'app_rw';
-    await apiPost(`/api/clusters/${c.id}/databases`, { name: name.trim(), owner }).catch(() => { });
-    reload();
-  };
-  const switchDrill = async (instance: string) => {
-    if (!window.confirm(`确认对 ${instance} 执行切换演练？该备库将升为主库。`)) return;
-    await apiPost(`/api/clusters/${c.id}/replicas/${encodeURIComponent(instance)}/switch-drill`).catch(() => { });
-    reload();
-  };
-  const rebuildReplica = async (instance: string) => {
-    if (!window.confirm(`确认重建 ${instance} 的复制链路？`)) return;
-    await apiPost(`/api/clusters/${c.id}/replicas/${encodeURIComponent(instance)}/rebuild`).catch(() => { });
-    reload();
-  };
-  const editParam = async (p: ParamItem) => {
-    const value = window.prompt(`修改参数 ${p.name}（范围 ${p.range}）`, p.value);
-    if (value === null || value === p.value) return;
-    await apiPut(`/api/clusters/${c.id}/params/${encodeURIComponent(p.name)}`, { value }).catch(() => { });
-    reload();
-  };
+  /* ---- 写操作（页内弹窗 + toast 反馈） ---- */
+  const ops = useOpDialog();
+
+  const createDatabase = () => ops.prompt(`创建数据库（${c.name}）`, [
+    { key: 'name', label: '数据库名称', placeholder: '如 trade_order', required: true },
+    { key: 'owner', label: 'Owner', initial: 'app_rw' },
+  ], v => runOp(`数据库 ${v.name} 已创建`, () =>
+    apiPost(`/api/clusters/${c.id}/databases`, { name: v.name, owner: v.owner || 'app_rw' }), reload), '创建');
+
+  const switchDrill = (instance: string) => ops.confirm('切换演练', `确认对 ${instance} 执行切换演练？该备库将升为主库。`, () =>
+    runOp(`切换演练完成：${instance} 已升为主库`, () =>
+      apiPost(`/api/clusters/${c.id}/replicas/${encodeURIComponent(instance)}/switch-drill`), reload),
+    { okText: '执行演练', danger: true });
+
+  const rebuildReplica = (instance: string) => ops.confirm('重建复制', `确认重建 ${instance} 的复制链路？重建期间该备库暂时落后。`, () =>
+    runOp(`已开始重建 ${instance} 的复制链路`, () =>
+      apiPost(`/api/clusters/${c.id}/replicas/${encodeURIComponent(instance)}/rebuild`), reload),
+    { okText: '重建' });
+
+  const editParam = (p: ParamItem) => ops.prompt(`修改参数 ${p.name}`, [
+    { key: 'value', label: `新值（范围 ${p.range}）`, initial: p.value, required: true, hint: p.desc },
+  ], v => {
+    if (v.value === p.value) { toast.info('参数值未变化'); return; }
+    runOp(`参数 ${p.name} 已修改，待工单下发`, () =>
+      apiPut(`/api/clusters/${c.id}/params/${encodeURIComponent(p.name)}`, { value: v.value }), reload);
+  });
   const showHistory = async (name: string) => {
     if (histFor === name) { setHistFor(null); return; }
     setHistFor(name);
@@ -119,6 +123,7 @@ export default function ClusterDetailPg({ cluster: c, reload }: { cluster: Clust
                     <td>{i.conn}</td><td><Pill st={i.status} /></td>
                   </tr>
                 ))}
+              {!c.instances.length && <tr><td colSpan={7}><div className="empty" style={{ padding: '32px 0' }}>暂无实例</div></td></tr>}
               </tbody>
             </table>
           </div>
@@ -150,6 +155,7 @@ export default function ClusterDetailPg({ cluster: c, reload }: { cluster: Clust
                   <td><span style={{ color: 'var(--blue)', cursor: 'pointer' }}>监控</span> · <span style={{ color: 'var(--blue)', cursor: 'pointer' }}>会话</span> · <span style={{ color: 'var(--blue)', cursor: 'pointer' }}>备份</span></td>
                 </tr>
               ))}
+            {!((c.databases || [])).length && <tr><td colSpan={7}><div className="empty" style={{ padding: '32px 0' }}>暂无数据库，点击右上角创建</div></td></tr>}
             </tbody>
           </table>
         </div>
@@ -184,6 +190,7 @@ export default function ClusterDetailPg({ cluster: c, reload }: { cluster: Clust
                   </td>
                   </tr>
                 ))}
+              {!((c.replicas || [])).length && <tr><td colSpan={6}><div className="empty" style={{ padding: '32px 0' }}>暂无备库复制信息</div></td></tr>}
               </tbody>
             </table>
             <div className="advice">
@@ -236,6 +243,7 @@ export default function ClusterDetailPg({ cluster: c, reload }: { cluster: Clust
                     )}
                   </React.Fragment>
                 ))}
+              {!c.params.length && <tr><td colSpan={6}><div className="empty" style={{ padding: '32px 0' }}>暂无参数</div></td></tr>}
               </tbody>
           </table>
         </div>
@@ -254,6 +262,7 @@ export default function ClusterDetailPg({ cluster: c, reload }: { cluster: Clust
           ))}
         </div>
       )}
+      {ops.view}
     </>
   );
 }

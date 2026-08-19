@@ -5,9 +5,12 @@ import { TopoSVG, TopoLegend } from '../components/TopoSVG';
 import { MonitorTab } from '../components/MonitorTab';
 import { CLUSTERS, TYPE_ICON, INSTANCE_USERS, SESSIONS, TRANSACTIONS, SLOW_SQLS } from '../lib/mockData';
 import { apiGet, apiPost, withFallback } from '../lib/api';
+import { useOpDialog, runOp } from '../components/opDialog';
+import { Overlay } from '../components/dialogs';
+import { toast } from '../lib/toast';
 import { useBreadcrumb } from '../App';
 import { openChatDrawer } from '../lib/chatDrawer';
-import { IconRefresh, IconBolt, IconRobot } from '../components/icons';
+import { IconRefresh, IconRobot } from '../components/icons';
 import type { Cluster, Instance } from '../lib/types';
 
 interface UserRow { user: string; host: string; priv: string; lastLogin: string; status: string }
@@ -29,6 +32,7 @@ export default function InstanceDetail() {
   const navigate = useNavigate();
   const [tab, setTab] = useState('topo');
   const [diagSql, setDiagSql] = useState<number | null>(null);
+  const [viewSql, setViewSql] = useState<SlowSqlRow | null>(null);
   const [diagAdvice, setDiagAdvice] = useState<string[]>([]);
 
   /* 实例 / 集群：apiserver 优先，mock 兜底 */
@@ -64,37 +68,42 @@ export default function InstanceDetail() {
   if (!c || !inst) { navigate('/clusters', { replace: true }); return null; }
   const base = `/api/clusters/${c.id}/instances/${inst.id}`;
 
-  /* ---- 写操作 ---- */
-  const createUser = async () => {
-    const user = window.prompt('账号名（如 app_rw / trade_rw@tenant）');
-    if (!user?.trim()) return;
-    const host = window.prompt('允许主机（留空 %）', '%') || '%';
-    const priv = window.prompt('权限（如 SELECT, INSERT）', 'SELECT') || 'SELECT';
-    await apiPost(`${base}/users`, { user: user.trim(), host, priv }).catch(() => { });
-    reload();
-  };
-  const grantUser = async (u: UserRow) => {
-    const priv = window.prompt(`调整 ${u.user} 的权限`, u.priv);
-    if (priv === null || priv === u.priv) return;
-    await apiPost(`${base}/users/${encodeURIComponent(u.user)}/grant`, { priv }).catch(() => { });
-    reload();
-  };
-  const resetPassword = async (u: UserRow) => {
-    if (!window.confirm(`确认重置 ${u.user} 的密码？`)) return;
-    await apiPost(`${base}/users/${encodeURIComponent(u.user)}/reset-password`).catch(() => { });
-    window.alert('已提交重置（演示环境为模拟操作，见审计日志）');
-  };
-  const lockUser = async (u: UserRow) => {
+  /* ---- 写操作（页内弹窗 + toast 反馈） ---- */
+  const ops = useOpDialog();
+
+  const createUser = () => ops.prompt('创建账号', [
+    { key: 'user', label: '账号名', placeholder: '如 app_rw / trade_rw@tenant', required: true },
+    { key: 'host', label: '允许主机', initial: '%' },
+    { key: 'priv', label: '权限', initial: 'SELECT' },
+  ], v => runOp(`账号 ${v.user} 已创建`, () =>
+    apiPost(`${base}/users`, { user: v.user, host: v.host || '%', priv: v.priv || 'SELECT' }), reload), '创建');
+
+  const grantUser = (u: UserRow) => ops.prompt(`调整权限（${u.user}）`, [
+    { key: 'priv', label: '权限', initial: u.priv, required: true },
+  ], v => {
+    if (v.priv === u.priv) { toast.info('权限未变化'); return; }
+    runOp(`已更新 ${u.user} 的权限`, () =>
+      apiPost(`${base}/users/${encodeURIComponent(u.user)}/grant`, { priv: v.priv }), reload);
+  });
+
+  const resetPassword = (u: UserRow) => ops.confirm('重置密码', `确认重置 ${u.user} 的密码？新密码将通过安全渠道下发。`, () =>
+    runOp(`已提交 ${u.user} 的密码重置（见审计日志）`, () =>
+      apiPost(`${base}/users/${encodeURIComponent(u.user)}/reset-password`)), { okText: '重置' });
+
+  const lockUser = (u: UserRow) => {
     const locking = u.status !== 'err';
-    if (!window.confirm(locking ? `确认锁定账号 ${u.user}？` : `确认解锁账号 ${u.user}？`)) return;
-    await apiPost(`${base}/users/${encodeURIComponent(u.user)}/lock`).catch(() => { });
-    reload();
+    return ops.confirm(locking ? '锁定账号' : '解锁账号', locking
+      ? `确认锁定账号 ${u.user}？锁定后该账号无法登录。`
+      : `确认解锁账号 ${u.user}？`, () =>
+      runOp(locking ? `已锁定 ${u.user}` : `已解锁 ${u.user}`, () =>
+        apiPost(`${base}/users/${encodeURIComponent(u.user)}/lock`), reload),
+      { okText: locking ? '锁定' : '解锁', danger: locking });
   };
-  const killSession = async (s: SessionRow) => {
-    if (!window.confirm(`确认 Kill 会话 ${s.id}（${s.user}）？该操作将终止其执行。`)) return;
-    await apiPost(`${base}/sessions/${s.id}/kill`).catch(() => { });
-    reload();
-  };
+
+  const killSession = (s: SessionRow) => ops.confirm('Kill 会话', `确认 Kill 会话 ${s.id}（${s.user}）？该操作将终止其执行。`, () =>
+    runOp(`会话 ${s.id} 已终止`, () => apiPost(`${base}/sessions/${s.id}/kill`), reload),
+    { okText: 'Kill', danger: true });
+
   const diagnose = async (i: number) => {
     setDiagSql(i);
     const s = sqls[i];
@@ -150,6 +159,7 @@ export default function InstanceDetail() {
                   </td>
                 </tr>
               ))}
+            {!users.length && <tr><td colSpan={6}><div className="empty" style={{ padding: '32px 0' }}>暂无账号，点击右上角创建</div></td></tr>}
             </tbody>
           </table>
         </div>
@@ -168,11 +178,12 @@ export default function InstanceDetail() {
             <tbody>
               {sqls.map((s, i) => (
                 <tr key={i}>
-                  <td className="mono" style={{ maxWidth: 380, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.sql}</td>
+                  <td className="mono sql-cell" title="点击查看完整 SQL" onClick={() => setViewSql(s)} style={{ maxWidth: 380, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.sql}</td>
                   <td>{s.db}</td><td style={{ color: 'var(--amber)' }}>{s.time}</td><td>{s.rows}</td><td>{s.count}</td>
                   <td><span style={{ color: 'var(--blue)', cursor: 'pointer' }} onClick={() => diagnose(i)}>AI 诊断</span></td>
                 </tr>
               ))}
+            {!sqls.length && <tr><td colSpan={6}><div className="empty" style={{ padding: '32px 0' }}>暂无慢 SQL 记录</div></td></tr>}
             </tbody>
           </table>
           {diagSql != null && (
@@ -209,6 +220,7 @@ export default function InstanceDetail() {
                   <td><Pill st={t.status} /></td>
                 </tr>
               ))}
+            {!trxs.length && <tr><td colSpan={9}><div className="empty" style={{ padding: '32px 0' }}>暂无长事务</div></td></tr>}
             </tbody>
           </table>
           <div className="advice">
@@ -248,6 +260,20 @@ export default function InstanceDetail() {
           </table>
         </div>
       )}
+      {viewSql && (
+        <Overlay onClose={() => setViewSql(null)}>
+          <div className="dap-head">SQL 指纹</div>
+          <div className="dap-body">
+            <pre className="sql-view">{viewSql.sql}</pre>
+            <div className="sql-view-meta">库 {viewSql.db} · 平均耗时 {viewSql.time} · 扫描 {viewSql.rows} 行 · 日均 {viewSql.count} 次</div>
+          </div>
+          <div className="dap-foot">
+            <button className="btn sm" onClick={() => setViewSql(null)}>关闭</button>
+            <button className="btn sm primary" onClick={() => { navigator.clipboard?.writeText(viewSql.sql).then(() => toast.success('SQL 已复制')).catch(() => toast.error('复制失败')); }}>复制</button>
+          </div>
+        </Overlay>
+      )}
+      {ops.view}
     </>
   );
 }
