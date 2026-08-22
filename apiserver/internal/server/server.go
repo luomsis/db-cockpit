@@ -2,8 +2,6 @@ package server
 
 import (
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -21,7 +19,12 @@ func New(cfg config.Config, gdb *gorm.DB, rt *agent.Runtime) *gin.Engine {
 	r.Use(gin.Recovery(), cors(), authStub(cfg))
 
 	h := &handler.H{DB: gdb}
-	ch := &handler.ChatHandler{H: *h, RT: rt}
+	// chat_turns.config_version 快照：标识本轮事件源（配置中心接入后细化为真实配置版本）
+	agentCV := "builtin-v0"
+	if cfg.AgentMode == "upstream" {
+		agentCV = "upstream-v0"
+	}
+	ch := &handler.ChatHandler{H: *h, RT: rt, ConfigVersion: agentCV}
 
 	r.GET("/healthz", func(c *gin.Context) {
 		c.String(http.StatusOK, "ok")
@@ -32,6 +35,14 @@ func New(cfg config.Config, gdb *gorm.DB, rt *agent.Runtime) *gin.Engine {
 		api.GET("/version", h.GetVersion)
 		api.GET("/overview", h.GetOverview)
 		api.GET("/alerts", h.GetAlerts)
+		api.GET("/changes", h.ListChanges) // 数据面白名单：变更工单（诊断时间窗关联）
+
+		// 元数据域下钻（§6.1.1：集群 → 实例 → 节点）
+		meta := api.Group("/meta")
+		{
+			meta.GET("/clusters", h.ListMetaClusters)
+			meta.GET("/clusters/:id", h.GetMetaCluster)
+		}
 
 		cl := api.Group("/clusters")
 		{
@@ -86,39 +97,76 @@ func New(cfg config.Config, gdb *gorm.DB, rt *agent.Runtime) *gin.Engine {
 			dbGroup.DELETE("/:id", h.DeleteDashboard)
 		}
 
+		// 设置中心：大模型 / 嵌入模型服务配置（含测试连接）
+		mc := api.Group("/model-configs")
+		{
+			mc.GET("", h.ListModelConfigs)
+			mc.POST("", h.CreateModelConfig)
+			mc.PUT("/:id", h.UpdateModelConfig)
+			mc.DELETE("/:id", h.DeleteModelConfig)
+			mc.POST("/:id/test", h.TestModelConfig)
+		}
+		ec := api.Group("/embedding-configs")
+		{
+			ec.GET("", h.ListEmbeddingConfigs)
+			ec.POST("", h.CreateEmbeddingConfig)
+			ec.PUT("/:id", h.UpdateEmbeddingConfig)
+			ec.DELETE("/:id", h.DeleteEmbeddingConfig)
+			ec.POST("/:id/test", h.TestEmbeddingConfig)
+		}
+
+		// 插件中心：MCP 服务 / Skills
+		mp := api.Group("/mcp-servers")
+		{
+			mp.GET("", h.ListMcpServers)
+			mp.POST("", h.CreateMcpServer)
+			mp.PUT("/:id", h.UpdateMcpServer)
+			mp.DELETE("/:id", h.DeleteMcpServer)
+		}
+		sk := api.Group("/skills")
+		{
+			sk.GET("", h.ListSkills)
+			sk.POST("", h.CreateSkill)
+			sk.PUT("/:id", h.UpdateSkill)
+			sk.DELETE("/:id", h.DeleteSkill)
+		}
+
+		// 管理面：动态 subagent / workflow 定义（agent 运行时直读 PG，依赖规则②）
+		sa := api.Group("/subagents")
+		{
+			sa.GET("", h.ListSubagentDefs)
+			sa.POST("", h.CreateSubagentDef)
+			sa.PUT("/:id", h.UpdateSubagentDef)
+			sa.DELETE("/:id", h.DeleteSubagentDef)
+		}
+		wf := api.Group("/workflows")
+		{
+			wf.GET("", h.ListWorkflowDefs)
+			wf.POST("", h.CreateWorkflowDef)
+			wf.PUT("/:id", h.UpdateWorkflowDef)
+			wf.DELETE("/:id", h.DeleteWorkflowDef)
+		}
+
 		api.GET("/metrics", h.ListMetrics)
 		api.GET("/dash/series", h.DashSeries)
 		api.GET("/dash/annotations", h.DashAnnotations)
 	}
 
-	// chat：builtin 本地实现 / upstream 透明代理（docs §3.5，未来热换 Python）
-	if cfg.AgentMode == "upstream" && cfg.AgentUpstreamURL != "" {
-		mountChatProxy(r, cfg.AgentUpstreamURL)
-	} else {
-		chat := api.Group("/chat")
-		{
-			chat.GET("/sessions", ch.ListSessions)
-			chat.POST("/sessions", ch.CreateSession)
-			chat.POST("/sessions/import", ch.ImportSessions)
-			chat.GET("/sessions/:id", ch.GetSession)
-			chat.DELETE("/sessions/:id", ch.DeleteSession)
-			chat.POST("/sessions/:id/turns", ch.SubmitTurn)
-			chat.GET("/sessions/:id/stream", ch.Stream)
-			chat.POST("/sessions/:id/turns/:tid/cancel", ch.CancelTurn)
-		}
+	// chat：Go 始终终结 SSE（v1.2 起退役整组反代；AGENT_MODE 只切换事件源，见 main.go 装配）
+	chat := api.Group("/chat")
+	{
+		chat.GET("/sessions", ch.ListSessions)
+		chat.POST("/sessions", ch.CreateSession)
+		chat.POST("/sessions/import", ch.ImportSessions)
+		chat.GET("/sessions/:id", ch.GetSession)
+		chat.DELETE("/sessions/:id", ch.DeleteSession)
+		chat.POST("/sessions/:id/turns", ch.SubmitTurn)
+		chat.GET("/sessions/:id/stream", ch.Stream)
+		chat.POST("/sessions/:id/turns/:tid/cancel", ch.CancelTurn)
 	}
 
 	handler.RegisterInternal(r)
 	return r
-}
-
-// mountChatProxy：upstream 模式把 /api/chat/* 整组反代到 Python agentcluster。
-func mountChatProxy(r *gin.Engine, upstream string) {
-	target, _ := url.Parse(upstream)
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	r.Any("/api/chat/*path", func(c *gin.Context) {
-		proxy.ServeHTTP(c.Writer, c.Request)
-	})
 }
 
 func cors() gin.HandlerFunc {

@@ -6,25 +6,16 @@ import (
 	"db-cockpit/apiserver/internal/envelope"
 )
 
-/* ================= /internal/*：Go↔Python 边界契约（MVP 只注册不实现） =================
- * 路由清单对齐 docs《架构设计文档》§3.5 与《Agent执行框架》§15；
- * Python agentcluster 就绪后在此挂真实实现。
+/* ================= /internal/*：Go↔agent 边界（v2.0 依赖规则重构后仅存过渡通道） =================
+ * 依赖规则：运行时唯一服务间调用 = Go→agent 的 exec 执行流（见 agent/upstream.go）；
+ * 本组路由仅为 MVP 过渡保留：tools/data 在 MCP Server 就绪后退役；
+ * wake 已随任务表契约（agent_tasks 轮询，见 agent/taskbus.go）退役删除。
  */
 
 func RegisterInternal(r gin.IRouter) {
 	g := r.Group("/internal")
 	notImpl := func(c *gin.Context) { envelope.NotImplemented(c) }
 
+	// 过渡通道：同步工具取数（MCP Server 逐工具承接后退役）
 	g.POST("/tools/data", notImpl)
-
-	g.GET("/sessions", notImpl)
-	g.POST("/sessions", notImpl)
-	g.GET("/sessions/:id/turns", notImpl)
-	g.GET("/turns/:id/trace", notImpl)
-	g.GET("/sessions/:id/checkpoints", notImpl)
-
-	g.POST("/tasks", notImpl)
-	g.GET("/tasks/:id", notImpl)
-
-	r.POST("/agentcluster/wake", notImpl)
 }

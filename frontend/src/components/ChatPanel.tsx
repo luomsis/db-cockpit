@@ -9,10 +9,13 @@ import { loadDrawerWidth, saveDrawerWidth, loadActiveSession, saveActiveSession 
 import { relTime } from '../lib/dashboards';
 import { MessageView } from './chatParts';
 import { ChatAnchorRail } from './chatAnchorRail';
+import { ChatComposer } from './chatComposer';
+import { ModelPicker } from './modelPicker';
 import { IconHistory, IconPlus, IconClose, IconRobot } from './icons';
 
 export function ChatPanel({ onClose }: { onClose: () => void }) {
-  const { sessions, active, setActiveId, streaming, send, stop, createSession, removeSession } = useChat();
+  const { sessions, active, setActiveId, streaming, send, stop, createSession, removeSession,
+    modelConfigs, activeModelId, setActiveModelId } = useChat();
   const [input, setInput] = useState('');
   const [showHistory, setShowHistory] = useState(false);
   const [width, setWidth] = useState<number>(() => loadDrawerWidth());
@@ -27,7 +30,7 @@ export function ChatPanel({ onClose }: { onClose: () => void }) {
 
   const doSend = (text?: string) => {
     const q = send(text);
-    if (q !== undefined) setInput('');
+    if (q) setInput('');
   };
 
   /* 左缘拖拽调宽（320px ~ 视口内上限），松手后记忆宽度 */
@@ -104,19 +107,18 @@ export function ChatPanel({ onClose }: { onClose: () => void }) {
                 </div>
               )}
               {active.messages.map(m => <MessageView key={m.id} msg={m} onAsk={q => doSend(q)} />)}
-              {streaming && (
-                <div className="chatp-stop-row"><button className="btn sm" onClick={stop}>■ 停止生成</button></div>
-              )}
             </div>
           </ChatAnchorRail>
           <div className="chat-drawer-input">
-            <input
+            <ChatComposer
               value={input}
-              placeholder={streaming ? 'AI 正在回复…' : '向 AI 助手提问…'}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') doSend(); }}
+              onChange={setInput}
+              onSend={doSend}
+              streaming={streaming}
+              onStop={stop}
+              placeholder={streaming ? 'AI 正在回复…，可继续编辑下一条' : '向 AI 助手提问…'}
+              modelSlot={<ModelPicker configs={modelConfigs} value={activeModelId} onChange={setActiveModelId} onNavigate={onClose} />}
             />
-            <button className="chat-drawer-send" onClick={() => doSend()} disabled={streaming || !input.trim()}>发送</button>
           </div>
         </>
       )}

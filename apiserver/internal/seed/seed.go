@@ -305,6 +305,10 @@ func Run(gdb *gorm.DB) error {
 			return err
 		}
 	}
+	// 元数据域 + 数据面白名单：各表独立「表空才导入」（与主演示种子互不影响）
+	if err := RunWhitelist(gdb); err != nil {
+		return err
+	}
 	var clusterCount int64
 	if err := gdb.Model(&model.Cluster{}).Count(&clusterCount).Error; err != nil {
 		return err

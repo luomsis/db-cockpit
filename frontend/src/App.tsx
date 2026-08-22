@@ -1,4 +1,4 @@
-import { Component, createContext, useContext, useEffect, useState } from 'react';
+import { Component, createContext, Fragment, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { HashRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Overview from './pages/Overview';
@@ -11,11 +11,13 @@ import Dashboards, { DashboardEntry } from './pages/Dashboards';
 import DashboardView from './pages/DashboardView';
 import TenantDetail from './pages/TenantDetail';
 import ChatPage from './pages/ChatPage';
+import Settings from './pages/Settings';
+import Plugins from './pages/Plugins';
 import { ChatPanel } from './components/ChatPanel';
 import { ApiProvider, setQueryProvider } from './lib/query';
 import { apiGet, withFallback } from './lib/api';
 import { ToastHost } from './lib/toast';
-import { IconOverview, IconCluster, IconHost, IconDashboard, IconChat, IconSearch, IconBell } from './components/icons';
+import { IconOverview, IconCluster, IconHost, IconDashboard, IconChat, IconSearch, IconBell, IconSettings, IconInfo, IconPlugin } from './components/icons';
 
 /* 后端就绪：大盘查询切到 apiserver（失败自动回退 mock） */
 setQueryProvider(ApiProvider);
@@ -76,19 +78,36 @@ export function useBreadcrumb(items: CrumbItem[]) {
   }, [key]);
 }
 
-const NAV = [
-  { path: '/overview', Ico: IconOverview, label: '概览' },
-  { path: '/clusters', Ico: IconCluster, label: '集群' },
-  { path: '/hosts', Ico: IconHost, label: '主机' },
-  { path: '/alerts', Ico: IconBell, label: '告警' },
-  { path: '/dashboards', Ico: IconDashboard, label: '监控大盘' },
-  { path: '/chat', Ico: IconChat, label: '智能对话' },
+const NAV_GROUPS = [
+  {
+    title: '运维功能',
+    items: [
+      { path: '/overview', Ico: IconOverview, label: '概览' },
+      { path: '/clusters', Ico: IconCluster, label: '集群' },
+      { path: '/hosts', Ico: IconHost, label: '主机' },
+      { path: '/alerts', Ico: IconBell, label: '告警' },
+      { path: '/dashboards', Ico: IconDashboard, label: '监控大盘' },
+    ],
+  },
+  {
+    title: '智能体',
+    items: [
+      { path: '/chat', Ico: IconChat, label: '智能对话' },
+      { path: '/plugins', Ico: IconPlugin, label: '插件中心' },
+      { path: '/settings', Ico: IconSettings, label: '模型设置' },
+    ],
+  },
 ];
 
-/* ---------- 左下角：compose 各服务 git 版本 ---------- */
+/* 菜单激活判定：精确匹配；监控大盘在 /dashboard/:id 视图下保持高亮 */
+const isNavActive = (path: string, cur: string) =>
+  cur === path || (path === '/dashboards' && cur.startsWith('/dashboard'));
+
+/* ---------- 左下角：关于悬停浮窗 ---------- */
 interface SvcVersion { name: string; gitSHA: string; buildTime: string }
 
-function ServiceVersions() {
+/* 关于按钮：悬停浮窗展示各服务 git 版本（frontend / apiserver） */
+function AboutButton() {
   const [fe, setFe] = useState<SvcVersion | null>(null);
   const [api, setApi] = useState<SvcVersion | null>(null);
   useEffect(() => {
@@ -99,14 +118,23 @@ function ServiceVersions() {
       .catch(() => { /* 离线忽略 */ });
   }, []);
   return (
-    <div className="svc-versions">
-      <div className="svc-version" title="frontend 构建版本">
-        <span className="svc-name">frontend</span>
-        <span className="svc-sha">{fe?.gitSHA || 'unknown'}</span>
-      </div>
-      <div className="svc-version" title="apiserver 构建版本">
-        <span className="svc-name">apiserver</span>
-        <span className="svc-sha">{api?.gitSHA || 'unknown'}</span>
+    <div className="sf-about">
+      <button className="sf-icon-btn" title="关于">
+        <IconInfo size={15} /><span className="sf-btn-label">关于</span>
+      </button>
+      <div className="about-pop">
+        <div className="about-pop-title">DB Cockpit · 数据库智能驾驶仓</div>
+        <div className="about-pop-ver">v0.1.0</div>
+        <div className="about-pop-svc">
+          <span className="about-pop-name">frontend</span>
+          <code>{fe?.gitSHA || 'unknown'}</code>
+          {fe?.buildTime && <em>{fe.buildTime}</em>}
+        </div>
+        <div className="about-pop-svc">
+          <span className="about-pop-name">apiserver</span>
+          <code>{api?.gitSHA || 'unknown'}</code>
+          {api?.buildTime && <em>{api.buildTime}</em>}
+        </div>
       </div>
     </div>
   );
@@ -158,11 +186,15 @@ function Shell() {
             </div>
           </div>
           <nav className="nav">
-            {NAV.map(n => (
-              <Link key={n.path} to={n.path}
-                className={location.pathname === n.path || (n.path === '/dashboards' && location.pathname.startsWith('/dashboard')) ? 'active' : ''}>
-                <span className="ico"><n.Ico size={17} /></span><span className="nav-label">{n.label}</span>
-              </Link>
+            {NAV_GROUPS.map(g => (
+              <Fragment key={g.title}>
+                <div className="nav-group">{g.title}</div>
+                {g.items.map(n => (
+                  <Link key={n.path} to={n.path} className={isNavActive(n.path, location.pathname) ? 'active' : ''}>
+                    <span className="ico"><n.Ico size={17} /></span><span className="nav-label">{n.label}</span>
+                  </Link>
+                ))}
+              </Fragment>
             ))}
           </nav>
           <div className="sidebar-foot">
@@ -173,7 +205,9 @@ function Shell() {
                 <div className="env-sub">v0.1.0 · apiserver 已接线</div>
               </div>
             </div>
-            <ServiceVersions />
+            <div className="sf-actions">
+              <AboutButton />
+            </div>
           </div>
         </aside>
 
@@ -214,8 +248,10 @@ function Shell() {
               <Route path="/dashboards/list" element={<Dashboards />} />
               <Route path="/dashboard/:id" element={<DashboardView />} />
               <Route path="/dashboard" element={<Navigate to="/dashboards" replace />} />
-              <Route path="/chat" element={<ChatPage />} />
-              <Route path="*" element={<Navigate to="/overview" replace />} />
+                <Route path="/chat" element={<ChatPage />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/plugins" element={<Plugins />} />
+                <Route path="*" element={<Navigate to="/overview" replace />} />
               </Routes>
             </ErrorBoundary>
           </main>

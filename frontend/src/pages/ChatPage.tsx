@@ -4,6 +4,8 @@ import { QUICK_QUESTIONS } from '../lib/mockAgent';
 import { useChat } from '../lib/useChat';
 import { IconRobot, IconChevronLeft, IconChevronRight, IconPlus } from '../components/icons';
 import { ChatAnchorRail } from '../components/chatAnchorRail';
+import { ChatComposer } from '../components/chatComposer';
+import { ModelPicker } from '../components/modelPicker';
 import { useBreadcrumb } from '../App';
 
 const COLLAPSED_KEY = 'dbChatSessCollapsed';
@@ -11,7 +13,8 @@ const COLLAPSED_KEY = 'dbChatSessCollapsed';
 /* 完整对话页：会话与流式回复走 apiserver SSE（离线自动回退本地 mock） */
 export default function ChatPage() {
   useBreadcrumb([{ label: '首页' }, { label: '智能对话' }]);
-  const { sessions, active, setActiveId, streaming, send, stop, createSession, removeSession } = useChat();
+  const { sessions, active, setActiveId, streaming, send, stop, createSession, removeSession,
+    modelConfigs, activeModelId, setActiveModelId } = useChat();
   const [input, setInput] = useState('');
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === '1');
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -26,7 +29,7 @@ export default function ChatPage() {
 
   const doSend = (text?: string) => {
     const q = send(text);
-    if (q !== undefined) setInput('');
+    if (q) setInput('');
   };
 
   if (!active) return null;
@@ -61,29 +64,23 @@ export default function ChatPage() {
                 </div>
               </div>
             )}
-            {active.messages.map(m => <MessageView key={m.id} msg={m} onAsk={q => doSend(q)} />)}
-            {streaming && (
-              <div className="chatp-stop-row">
-                <button className="btn sm" onClick={stop}>■ 停止生成</button>
-              </div>
-            )}
-          </div>
+              {active.messages.map(m => <MessageView key={m.id} msg={m} onAsk={q => doSend(q)} />)}
+            </div>
         </ChatAnchorRail>
 
         <div className="chatp-input">
           <div className="chatp-quick-inline">
             {!empty && QUICK_QUESTIONS.slice(0, 2).map(q => <button key={q} onClick={() => doSend(q)}>{q}</button>)}
           </div>
-          <div className="chatp-input-row">
-            <input
-              value={input}
-              placeholder={streaming ? 'AI 正在回复…' : '向 AI 助手提问，如：诊断 mysql-prod-order-01…'}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') doSend(); }}
-              disabled={streaming}
-            />
-            <button onClick={() => doSend()} disabled={streaming || !input.trim()}>发送</button>
-          </div>
+          <ChatComposer
+            value={input}
+            onChange={setInput}
+            onSend={doSend}
+            streaming={streaming}
+            onStop={stop}
+            placeholder={streaming ? 'AI 正在回复…，可继续编辑下一条' : '向 AI 助手提问，如：诊断 mysql-prod-order-01…'}
+            modelSlot={<ModelPicker configs={modelConfigs} value={activeModelId} onChange={setActiveModelId} />}
+          />
         </div>
       </div>
 

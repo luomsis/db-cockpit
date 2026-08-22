@@ -146,11 +146,7 @@ func (h *H) ListTransactions(c *gin.Context) {
 	envelope.OK(c, trxs)
 }
 
-func (h *H) ListSlowSqls(c *gin.Context) {
-	var sqls []model.SlowSql
-	h.DB.Order("id asc").Find(&sqls)
-	envelope.OK(c, sqls)
-}
+// ListSlowSqls 见 whitelist.go：数据面白名单 slow_query_log 指纹聚合（回退 UI 演示表）
 
 // DiagnoseSql：规则式 SQL 诊断建议（对应 InstanceDetail 的 AI 诊断面板）
 func (h *H) DiagnoseSql(c *gin.Context) {

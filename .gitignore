@@ -18,3 +18,7 @@ deploy/*.tar.gz
 # GUI 测试截图
 gui-test-screenshots/
 .gstack/
+
+# Python 编译产物
+__pycache__/
+*.pyc

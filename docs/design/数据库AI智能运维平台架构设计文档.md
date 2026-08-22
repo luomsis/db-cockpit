@@ -2,12 +2,19 @@
 
 | 项 | 内容 |
 |---|---|
-| 文档版本 | v1.1（技术选型与 MVP 范围共识稿） |
-| 日期 | 2026-08-16 |
-| 状态 | 待评审 |
+| 文档版本 | v2.2 |
+| 日期 | 2026-08-22 |
+| 状态 | 已评审（v2.0 依赖规则定稿；v2.1/§6.1.2 数据面白名单落地） |
 | 范围 | 整体架构设计，不含代码实现 |
+| 实现状态 | 功能级实现进度统一见 `docs/ROADMAP.md`；本文档内「已实现/设计态」在 §6.1.1/§6.1.2 及尾注标注 |
 
 > **变更记录**
+> - v2.2（2026-08-22）：文档重组（docs/design/ + 分类索引见 docs/README.md）——头部补实现状态指引；尾注 8 白名单「表结构待定」更新为已定稿；§10 去人力配比表述（任务分派文档退役，路线图改见 docs/ROADMAP.md）。
+> - v2.1（2026-08-22）：**数据面白名单表落地**（§6.1.2）——`alert_raw` / `change_ticket` / `slow_query_log` 建模定稿（`deploy/db/002_whitelist.sql` + GORM），`lock` 表评审结论为**不建**（锁走 remote 实时采集）；指标表继续 mock 待二期。消费端聚合先行：告警 Critical/Major→P1/P2 映射与对象聚合、慢 SQL 指纹聚合（digest GROUP BY）、变更工单时间窗 API、元数据域三级下钻 API（`/api/meta/*`）；演示种子与单测/集成测试/端到端验证全绿（Issue 域状态机仍为后续演进）。
+> - v2.0（2026-08-21）：**依赖规则重构**——四条依赖通道定稿（①唯一 exec 调用含 auth_context；②PG 表契约五域分治；③能力经 MCP；④权限注入）；任务改 agent_tasks 表契约（tasks API 与 wake 退役）；配置改直读 PG（拉取 API 退役）；固定专家改为主 agent + 动态 subagent（subagent_defs/workflow_defs 管理面实体）。代码已同步（taskbus/管理面 CRUD/限列写）。
+> - v1.4（2026-08-21）：存储收口修订为**三域分治**——agentcluster 直连 PG（读写分域：呈现域只读 + 内核域直写 trace/计量/checkpoint/摘要；Go 统一建模建表；受限角色），取代原「会话/轨迹一律经 Go 内部 API 读写」；§3.4/§3.5/§3.4.1 同步。详见《交互时序与生命周期》v1.3 D32-D34。
+> - v1.3（2026-08-20）：数据面拆分——新增 collector（既有独立程序：元信息收集直写白名单表）与 remote（Go · 平台侧 ×1 · 仅 SQL 的实例访问网关）；三收口修订为「控制面/数据面分层」；§3.4 部署改五容器 + 新增 §3.4.1 组件清单总表；§4.2 同步时序改为 collector 主导；Probe 直连通道经 remote。详见《交互时序与生命周期》§6-§8。
+> - v1.2（2026-08-20）：SSE 边界由「透明反代」改为「Go 终结点 + Python 内部执行流」（§3.5）；内部 API 扩充执行流/配置下发/注册表端点并约定凭证头与契约版本头；wake 幂等与取消级联语义（§5.6.2）；详见《交互时序与生命周期》。
 > - v1.1（2026-08-16）：新增 §3.4 技术选型与物理部署、§3.5 Go↔Python 边界契约、§4.4 指标归一化 MVP 策略、§11 二期能力设计占位（知识库问答/页面上下文/自治页）；存储简化为 PostgreSQL 单库；§10 分期路线按 MVP 共识重定义；§8 补充 MVP 鉴权降级说明。
 > - v1.0（2026-08-10）：初版架构共识稿。
 
@@ -91,7 +98,11 @@ flowchart TB
     subgraph DATA["数据服务层（Go apiserver 内）"]
         MP["指标查询代理（缓存 + 降级）"]
         PE["数据获取执行器 Probe Executor"]
-        DBGW["实例接入网关（只读 / 审计 / 熔断）"]
+    end
+
+    subgraph DP["数据面组件（独立程序 · v1.3）"]
+        COL["collector：元信息收集程序<br/>DBaaS/告警/日志/事件/变更定时拉取<br/>归一化去重 → 直写 PG 白名单表"]
+        RMT["remote：实例访问网关（Go · 平台侧 ×1）<br/>仅 SQL · 按需建连即用即毁<br/>只读双保险 · 执行审计直写 PG"]
     end
 
     subgraph STORE["数据存储层（PostgreSQL 单库）"]
@@ -100,11 +111,11 @@ flowchart TB
         DB3[("PG · 诊断档案（JSONB）")]
     end
 
-    subgraph ACL["旧系统适配层（防腐层，Go apiserver 内）"]
-        A1["DBaaS 元数据适配器"]
-        A2["告警系统适配器"]
-        A3["监控 API 适配器"]
-        A4["外采诊断 Agent 适配器"]
+    subgraph ACL["旧系统适配（防腐：批量拉取归 collector，按需查询归 apiserver）"]
+        A1["DBaaS 元数据适配器（collector）"]
+        A2["告警/日志适配器（collector）"]
+        A3["监控 API 适配器（apiserver）"]
+        A4["外采诊断 Agent 适配器（apiserver）"]
         A5["工单系统适配器（三期）"]
     end
 
@@ -117,7 +128,7 @@ flowchart TB
     end
 
     subgraph TARGET["数据库实例群"]
-        DBX["各类数据库实例（JDBC 直连只读）"]
+        DBX["各类数据库实例（remote 按需建连只读访问）"]
     end
 
     CLIENT --> ACCESS --> APP
@@ -129,13 +140,12 @@ flowchart TB
     EXP1 -- 经任务端口 --> BUS
     AIA --> CORP["公司统一 AI 平台"]
     DATA --> STORE
-    PE --> DBGW --> DBX
-    ACL --> LEGACY
+    PE --> RMT --> DBX
+    COL --> A1
+    COL --> A2
+    COL --> STORE
     MP --> A3
-    PE --> ACL
     BUS --> A4
-    A1 --> SVC5
-    A2 --> SVC3
     SVC5 --> DB1
     SVC3 --> DB1
     SVC4 --> DB3
@@ -157,7 +167,8 @@ flowchart TB
 | AI 层 | 多 Agent 编排、工具管理、异步任务、模型接入 | Supervisor 模式；专家无状态；复用公司 AI 平台，仅建薄适配层 |
 | 数据服务层 | 指标代理查询、按需数据采集、实例直连管控 | 工具不感知数据来源；直连只读 + 审计 + 熔断 |
 | 数据存储层 | 元数据、Issue、时序缓存、诊断档案 | 时序存储一期缓存、二期本地时序库 |
-| 适配层 | 所有旧系统调用的唯一出口；负责拉取、归一化与事件发出 | 防腐层收口，屏蔽旧 API 差异与变更；**不直写存储、不调用应用层业务逻辑** |
+| 适配层 | 旧系统调用的防腐出口：批量拉取（DBaaS 元数据/告警/日志）在 collector 内，按需查询（监控 TSDB/外采）在 apiserver 内 | 屏蔽旧 API 差异与变更；批量适配直写数据面白名单表（数据面特例），按需适配不写存储、不调应用层业务 |
+| 数据面组件（v1.3） | collector：元信息批量收集直写白名单表；remote：实例 SQL 实时访问网关（仅 SQL、按需建连、只读双保险、审计直写） | 独立程序；控制面（apiserver）只消费数据面表与调用 remote；详见 §3.4.1 |
 | 共享契约层 | 卡片协议、Tool Schema 契约包，版本化管理 | 前端与 AI 层相互不依赖，各自只依赖契约（依赖倒置） |
 
 ### 3.3 限界上下文与依赖规则
@@ -166,12 +177,12 @@ flowchart TB
 
 | 限界上下文 | 内部模块 | 对外提供的能力 |
 |---|---|---|
-| 元数据与同步 | DBaaS/告警适配器、元数据同步服务、元数据存储 | 元数据统一读接口、变更领域事件 |
+| 元数据与同步 | collector（DBaaS/告警/日志/事件/变更采集）、apiserver 同步消费服务、元数据存储 | 元数据统一读接口、变更领域事件 |
 | 监控接入 | 指标抽象层、查询代理、缓存、监控适配器（二期：采集 Agent + 时序库） | 统一指标查询接口（数据源可切换） |
 | Issue | 告警接入、Issue 服务、状态机 | Issue 读写与状态流转、Issue 事件 |
 | 会话与档案 | 会话编排、轮次/工具轨迹持久化、诊断报告 | 会话 API、档案查询与分享 |
 | Agent 编排 | 路由/专家 Agent、工具注册表、异步任务总线、AI 平台适配层 | 对话入口、任务进度回调 |
-| 能力接入 | Probe Executor、实例接入网关、插件适配层（MCP/CLI/Skills） | 声明式数据获取、插件注册 |
+| 能力接入 | Probe Executor、remote 实例访问网关、插件适配层（MCP/CLI/Skills） | 声明式数据获取、插件注册 |
 | 权限 | SSO 对接、RBAC、实例范围授权、权限网关 | 认证与可见范围注入 |
 | 呈现契约 | 卡片协议、Tool Schema 契约包 | 双方共享契约（只增不改，破坏性变更需向上兼容） |
 
@@ -193,14 +204,16 @@ flowchart TB
 | 决策点 | 选型 | 说明 |
 |---|---|---|
 | 前端 | React 18 + TypeScript + Vite + ECharts | 卡片渲染器注册表 = 组件注册，天然契合；大盘完整复刻 vanilla 原型已验证的编辑器交互 |
-| apiserver | Go | 收口所有入口与存储；chat SSE 透传；持有全部关系表；对 Python 暴露内部数据 API |
+| apiserver | Go · 控制面 | 收口所有入口；chat SSE 终结；持有控制面与业务表（数据面白名单表由 collector/remote 直写）；对 Python 暴露内部数据 API |
 | Agent 集群 | Python + LangGraph | 按执行框架文档四端口封装（落地映射见该文档 §14）；无状态多副本 |
+| collector | 既有独立程序 | 元信息收集（DBaaS/告警/日志/事件/变更）直写数据面白名单表；自维护水位；无业务语义（v1.3） |
+| remote | Go · 平台侧 ×1 | 实例 SQL 访问网关：按需建连即用即毁、只读双保险（账号 + SQL 白名单）、执行审计直写 PG、实例熔断（v1.3） |
 | LLM 接入 | 公司统一 AI 平台 | OpenAI 兼容协议 + 原生 tool calling + 流式；模型名/端点走 `model_profile` 配置（暂未定名，随时可换） |
 | 关系库 | PostgreSQL 单库 | 平台数据量不大；JSONB 承载卡片/轨迹/工具出入参等半结构化数据 |
 | 缓存 | 进程内 + PG 缓存表 | 不引入 Redis；指标查询代理的缓存接口保留抽象，量级上来后可无痛替换 |
 | 对象存储 | MVP 不引入 | 大结果（慢日志全文等）落 PG JSONB；`TOOL_CALL.output_json` 的引用接口保留，后续可切对象存储 |
 | 消息队列 | MVP 不引入 | 任务总线以 `DIAG_TASK` 表轮询实现（DB 为唯一事实源，见 §5.6.2） |
-| 部署 | Docker Compose | frontend / apiserver / agentcluster / postgres 四容器；生产 K8s 后置 |
+| 部署 | Docker Compose | frontend / apiserver / agentcluster / collector / remote 五容器 + PostgreSQL（复用宿主机既有实例或独立容器）；生产 K8s 后置 |
 
 物理部署与调用关系：
 
@@ -208,48 +221,88 @@ flowchart TB
 flowchart TB
     USER(["用户（DBA）"])
 
-    subgraph COMPOSE["Docker Compose（MVP 交付单元）"]
+    subgraph COMPOSE["Docker Compose（MVP 交付单元 · 五容器 + 复用宿主机 PG）"]
         FE["frontend（React 静态包 · Nginx）"]
-        GO["apiserver（Go）<br/>· 对外 REST（大盘/元数据/Issue/会话）<br/>· chat SSE 入口与透传<br/>· 内部数据 API（供 Agent 工具取数）<br/>· 任务总线调度（轮询/对账/回调）<br/>· 旧系统适配层（DBaaS/告警/监控/外采）"]
+        GO["apiserver（Go · 控制面）<br/>· 对外 REST（大盘/元数据/Issue/会话）<br/>· chat SSE 入口与终结（会话级常开）<br/>· 内部数据 API（执行流/工具取数/配置下发）<br/>· 任务总线调度（轮询/对账/回调/进度直发）<br/>· 指标查询代理（旧监控 TSDB 按需）<br/>· 告警 Issue 化消费"]
         PY["agentcluster（Python · LangGraph）<br/>· 路由/诊断/问数专家（无状态 ≥2 副本）<br/>· 四端口执行框架<br/>· 卡片生成器"]
-        PG[("PostgreSQL<br/>元数据/Issue/会话/轨迹/任务/缓存")]
+        COL["collector（独立程序 · 数据面）<br/>· DBaaS/告警/日志/事件/变更定时拉取<br/>· 归一化去重 → 直写 PG 白名单表<br/>· 自维护同步水位"]
+        RMT["remote（Go · 数据面 ×1）<br/>· 实例访问网关：仅 SQL<br/>· 按需建连即用即毁 · 只读双保险<br/>· 执行审计直写 PG · 实例熔断"]
+        PG[("PostgreSQL<br/>元数据/Issue/会话/轨迹/任务/配置/审计")]
     end
 
     CORP["公司统一 AI 平台<br/>（OpenAI 兼容 · tool calling · 流式）"]
-    LEGACY["旧监控系统 / DBaaS / 告警系统"]
+    LEGACY["旧 DBaaS / 告警 / 日志系统"]
+    TSDB["旧监控系统（TSDB API）"]
     VENDOR["外采诊断 Agent<br/>（契约到手后经适配器接入）"]
+    DBX["数据库实例群"]
 
     USER --> FE
     FE -->|"REST / SSE"| GO
     GO <--> PG
-    GO <-.->|"chat SSE 透传（六类事件）"| PY
-    PY -->|"内部数据 API：工具取数 / 会话轨迹读写 / 任务提交"| GO
-    GO -->|"任务完成回调（唤醒专家续聊）"| PY
+    COL -->|"定时拉取（水位续传）"| LEGACY
+    COL -->|"白名单表直写"| PG
+    GO <-.->|"内部执行流 /internal/exec/turns（六类事件）"| PY
+    PY -->|"内部数据 API：工具取数 / 会话轨迹读写 / 任务提交 / 配置下发"| GO
+    GO -->|"任务完成回调 wake（唤醒专家续聊）"| PY
+    GO -->|"Probe 直连通道 POST /query（凭证随发）"| RMT
+    RMT -->|"按需建连只读"| DBX
+    RMT -->|"执行审计直写"| PG
     PY -->|"LLM 直连"| CORP
-    GO -->|"拉取 / 查询（防腐层）"| LEGACY
+    PY -->|"PG 受限直连（chat_* 读 + 内核域写）"| PG
+    GO -->|"指标查询代理"| TSDB
     GO -.->|"submit / poll"| VENDOR
 ```
 
-**职责边界三原则**（Go↔Python 切分的硬约束）：
+**职责边界原则**（v2.0 修订：四条依赖规则，取代三收口表述）：
 
-1. **入口收口**：前端一切请求（含 chat SSE）只打 apiserver；agentcluster 不对外暴露端口，仅 Compose 内网可达；
-2. **存储收口**：全部 PG 表由 Go 侧持有，Python 不直连数据库、完全无状态——会话/轨迹/上下文/checkpoint 一律经 Go 内部 API 读写；由此 Python 可随意扩缩、重启、shadow 双跑；
-3. **防腐收口**：全部旧系统调用（DBaaS/告警/监控/外采）都在 Go 适配层；Python 仅感知两类外部依赖——**Go 内部 API** 与 **公司 AI 平台**。
+1. **入口收口 + 权限注入**：前端一切请求（含 chat SSE）只打 apiserver，认证鉴权仅在 apiserver 统一校验（依赖规则④）；agentcluster 不对外暴露端口，授权结果以 `auth_context` 随 exec 执行流下发，agent 只执行不鉴权；
+2. **存储收口（三域分治，v1.4）**：**会话呈现域**（chat_sessions / chat_turns / chat_messages / chat_turn_events）Go 独占读写——SSE 事实源（seq 分配、assistant 装配），agentcluster 只读；**执行内核域**（tool_calls / llm_calls / agent_checkpoints / agent_context_summaries）agentcluster 直连读写，Go 只读（前端轨迹视图）；**数据面白名单**——collector 写六类元信息表、remote 写执行审计表。表结构一律由 apiserver GORM AutoMigrate 统一建模；agentcluster 持受限 PG 角色（chat_* 只读 + 内核域读写）；agentcluster 仍无状态（状态全在 PG），可随意扩缩、重启、shadow 双跑；
+3. **防腐收口（分路）**：旧系统**批量拉取**（DBaaS 元数据/告警/日志/事件/变更）收口 collector；数据库实例**实时访问**收口 remote（仅 SQL）；旧监控 TSDB **按需查询**留 apiserver 指标查询代理；外采诊断经 apiserver 任务总线。Python 仍仅感知两类外部依赖——**Go 内部 API** 与 **公司 AI 平台**。
 
-### 3.5 Go ↔ Python 边界契约（v1.1）
+### 3.4.1 组件清单总表（v1.3 新增）
+
+平台实际存在的全部组件及作用（部署拓扑与调用关系见上图）：
+
+**自有组件（六类）**
+
+| 组件 | 形态 | 作用 |
+|---|---|---|
+| **frontend** | React 18 + TS 静态包（Nginx 容器） | 统一 UI：概览/监控大盘（编辑器复刻）/实例详情/下钻、设置中心（模型/嵌入配置）与插件中心（MCP/Skills）、Copilot 对话 + 卡片渲染器注册表（Generative UI）；只调 apiserver |
+| **apiserver** | Go（控制面，Gin + GORM） | 对外 REST 与 SSE 终结（会话级常开 + 心跳）；Go↔Python 内部 API（执行流 /internal/exec/turns、工具取数、会话轨迹、任务、配置下发）；任务总线调度（轮询/对账/wake 回调/进度直发）；Probe Executor 三通道路由（本地表/remote/旧 API）；指标查询代理（旧监控 TSDB 按需 + 缓存）；告警 Issue 化消费；控制面与业务表持有建模；插件/模型/MCP/Skill 配置管理 |
+| **agentcluster** | Python + LangGraph（≥2 副本，无状态） | 路由 Agent（意图识别/分发/汇总）+ 诊断/问数专家执行（ReAct 循环、四端口、护栏预算）；卡片生成器；**直连 PG（受限角色）**：呈现域只读装配上下文 + 内核域直写（tool_calls/llm_calls/checkpoint/滚动摘要）；LLM 直连公司 AI 平台；AgentDefinition(YAML) + 注册表/配置拉取编译 |
+| **collector** | 独立程序（**既有**，数据面，MVP 单实例） | 元信息批量收集：定时拉取旧 DBaaS（集群/实例/拓扑）、告警系统（告警/事件）、旧日志系统（日志/变更）→ 归一化 + 外部唯一 ID 去重 → **直写 PG 数据面白名单表（六类）**；自维护同步水位（断点续传/幂等）；无业务语义（不生成 Issue、不发通知、不调应用层） |
+| **remote** | Go（数据面，平台侧 ×1） | 数据库实例实时访问网关（**仅 SQL**）：承接 Probe Executor「实例直连」通道——凭证由 apiserver 随请求下发（PG 凭证表加密存储）、SQL 语句白名单双保险（只读账号 + 仅 SELECT/SHOW/EXPLAIN）、**按需建连即用即毁**（不池化）、执行审计直写 PG、实例熔断与冷却；命令执行/CLI/采集不归它（二期另定） |
+| **postgres** | PostgreSQL 单库 | 统一存储，**三域分治**：呈现域（Go 独占）/ 内核域（agentcluster 直连读写）/ 数据面白名单（collector/remote）；JSONB 承载半结构化数据；部署可复用宿主机既有实例（当前形态）或独立容器 |
+
+**外部依赖**
+
+| 依赖 | 用途 |
+|---|---|
+| 公司统一 AI 平台 | LLM 推理（OpenAI 兼容 + tool calling + 流式），agentcluster 直连 |
+| 旧 DBaaS / 告警 / 日志系统 | 元信息事实源（collector 定时拉取） |
+| 旧监控系统（TSDB API） | 时序指标事实源（apiserver 指标查询代理按需查询） |
+| 外采诊断 Agent | 深度诊断能力（apiserver 任务总线 submit/poll + vendor 适配器，shadow 注册位） |
+| MCP Servers | 插件生态工具（二期，agentcluster 直连持有连接池） |
+
+**二期演进占位**：MCP 网关（网络隔离需求时从 agentcluster 拆出）、本地时序库 + 采集器（自建采集替换旧监控源）、CLI 沙箱执行体（工具注册表 §7.2 的承载程序，归属二期另定）、对象存储（大结果外置）。
+
+### 3.5 Go ↔ Python 边界契约（v1.2 修订）
 
 内部 API（Go 暴露、Python 消费），独立监听端口/网络面，与对外 API 分离：
 
 | API 组 | 端点（示意） | 用途 |
 |---|---|---|
+| 执行流 | `POST /internal/exec/turns`（Go → Python，SSE 响应） | 轮次执行唯一通道：`{turn_id, session_id, user_msg, config_version, resume_of?}`，Python 以六类事件流式回传；替代原「upstream 透明反代」 |
 | 工具数据 | `POST /internal/tools/data`（tool_name + input → 标准化输出） | Agent 工具取数唯一入口：指标/告警/慢SQL/会话快照等，Probe Executor 三通道路由在 Go 侧完成 |
-| 会话与轨迹 | `GET/POST /internal/sessions`、`/internal/sessions/:id/turns`、`/internal/turns/:id/trace`、`/internal/sessions/:id/checkpoints` | 无状态 Python 的会话读写、轨迹落库、上下文装配取数、执行框架 checkpoint 持久化 |
+| PG 直连（v1.4） | agentcluster ↔ PostgreSQL（受限角色） | 上下文直读（chat_* 只读）+ 内核域直写（tool_calls / llm_calls / agent_checkpoints / agent_context_summaries）；取代 v1.3 前的 sessions/turns/trace/checkpoints 内部端点组 |
+| 配置下发 | `GET /internal/agent/configs`、`GET /internal/agent/registry`、`GET /internal/agent/skills/:id` | agentcluster 拉取模型/MCP/Skill 配置（明文 api_key 仅内网）与 ToolDefinition 注册表；Skill 正文按需加载 |
+| 插件发现（二期） | `POST /agentcluster/discover`、`POST /internal/registry/tools/draft` | MCP Server `tools/list` 发现 → ToolDefinition 草案回写 → 人工定级后 active |
 | 任务 | `POST /internal/tasks`（submit → task_id）、`GET /internal/tasks/:id` | TaskPort 实现；`DIAG_TASK` 表 Go 侧持有 |
-| 任务回调 | `POST /agentcluster/wake`（task_event：task_id/session_id/turn_id/event/result_ref） | Go 调度器任务完成后回调 Python，唤醒绑定专家续跑（任务续聊闭环，见执行框架 §7） |
+| 任务回调 | `POST /agentcluster/wake`（task_event：task_id/session_id/turn_id/event/result_ref） | Go 调度器任务完成后回调 Python，唤醒绑定专家续跑（任务续聊闭环，见执行框架 §7）；**至少一次投递 + Python 按 task_id+event 幂等去重**，投递失败 Go 有限重试，表状态兜底对账 |
 
-**SSE 透传链路**：`FE → GET /api/chat/sessions/:id/stream（Go）→ Go 对 Python 建立上游 SSE → 事件原样透传`。事件即执行框架 §9 的六类（thought/token/card/progress/done/error），Go 只透传不解析；断线重连由两端各自按 `last_event_id` 处理。
+**SSE 边界（v1.2 修订：Go 终结点模型）**：`FE → GET /api/chat/sessions/:id/stream`（Go 终结，**会话级常开**，15s 心跳）；Go 对 Python 经 `/internal/exec/turns` 建立上游执行流，事件进入 Go 会话总线后转发前端。六类事件（thought/token/card/progress/done/error）Go 只做事件级转发与留痕（`chat_turn_events`，会话内单调 seq），不解析卡片语义。相比 v1.1 的透明反代，该模型补齐四个执行点：任务总线 `progress` 事件直接注入会话总线（不经 Python）；断线重放完全由 Go 承担（前端连接与执行流解耦，FE 断线执行不中断）；同 session 并发轮次仲裁（新轮次取消旧轮次）；shadow 双跑/灰度复制比对。`AGENT_MODE` 语义由「整组路由切换」改为「事件源切换」：上游不可用时逐会话回退 builtin。
 
-**约定**：内部 API 预留服务间凭证头（MVP 无鉴权时不校验，二期接 SSO 时一并启用）。
+**约定**：内部 API 预留服务间凭证头（MVP 无鉴权时不校验，二期接 SSO 时一并启用）；内部契约携带版本头（`X-Contract-Version`），滚动发布期间版本不匹配快速失败。完整时序见《交互时序与生命周期》。
 
 ---
 
@@ -259,44 +312,44 @@ flowchart TB
 
 | 数据类型 | 归属策略 | 数据流类型 |
 |---|---|---|
-| 集群 / 实例元信息、拓扑 | 本地持久化，定时拉取旧 DBaaS API 同步 | 本地缓存数据流 |
-| 告警记录 / 事件 | 本地留存并转为 Issue；旧系统仍为事实源 | 本地缓存数据流 |
+| 集群 / 实例元信息、拓扑 | 本地持久化，collector 定时拉取旧 DBaaS API 同步 | 本地缓存数据流 |
+| 告警记录 / 事件 | collector 同步本地留存，apiserver 消费转 Issue；旧系统仍为事实源 | 本地缓存数据流 |
 | 时序监控指标 | 一期经指标查询代理拉旧监控 API（带缓存）；二期自建采集 Agent 推送本地时序库 | 远程实时获取数据流（一期）→ 本地数据流（二期） |
-| 会话快照 / 锁 / 慢日志 / 执行计划 | JDBC 直连按需采集，不缓存；结论落诊断档案 | 实时采集数据流 |
+| 会话快照 / 锁 / 慢日志 / 执行计划 | remote 按需建连只读采集，不缓存；结论落诊断档案 | 实时采集数据流 |
 | 诊断结论 / 报告 | 本地持久化（诊断档案） | 本地沉淀 |
 
-### 4.2 元数据与告警同步时序图（定时拉取）
+### 4.2 元数据与告警同步时序图（collector 定时拉取，v1.3 修订）
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant SCH as 同步调度器
-    participant A1 as DBaaS 适配器
-    participant A2 as 告警系统适配器
-    participant OLD1 as DBaaS API
-    participant OLD2 as 告警系统 API
-    participant SVC as 应用服务（同步/Issue服务）
-    participant DB as 本地元数据库
+    participant COL as collector（独立程序）
+    participant OLD as 旧系统（DBaaS/告警/日志）
+    participant PG as PostgreSQL（数据面白名单表）
+    participant GO as apiserver（控制面）
 
-    Note over SCH,DB: 元数据同步（定时全量/增量拉取）
-    SCH->>A1: 触发同步任务
-    A1->>OLD1: 拉取集群/实例/拓扑
-    OLD1-->>A1: 原始数据（旧 Schema）
-    A1->>A1: Schema 归一化（防腐转换）
-    A1->>SVC: 归一化数据 + 元数据变更事件
-    SVC->>DB: Upsert 元数据 + 记录同步水位（幂等/去重在服务层）
-    A1-->>SCH: 同步结果（成功/差异清单）
+    Note over COL,PG: 元信息同步（collector 定时拉取，水位续传）
+    loop 按源按水位增量拉取
+        COL->>OLD: 拉取集群/实例/拓扑（DBaaS）
+        COL->>OLD: 拉取告警/事件（增量水位）
+        COL->>OLD: 拉取日志/变更
+        OLD-->>COL: 原始数据（旧 Schema）
+        COL->>COL: Schema 归一化（防腐转换）+ 按外部唯一 ID 去重
+        COL->>PG: upsert 数据面白名单表（元数据/告警/日志/事件/变更）
+        COL->>PG: 推进同步水位（幂等/断点续传）
+    end
 
-    Note over SCH,DB: 告警/事件同步
-    SCH->>A2: 触发增量拉取（按水位）
-    A2->>OLD2: 拉取新增告警/事件
-    OLD2-->>A2: 原始告警数据
-    A2->>A2: 归一化 + 去重（按外部告警ID）
-    A2->>SVC: 归一化告警数据 + 告警接收事件
-    SVC->>DB: 写入告警记录，生成/关联 Issue
+    Note over GO,PG: 控制面消费（apiserver）
+    loop 定时（分钟级，可升级 LISTEN/NOTIFY）
+        GO->>PG: 读告警原始表增量
+        GO->>PG: 生成/关联 Issue（fingerprint 聚合 + 状态机 + 事件流水）
+    end
+    GO->>PG: 只读消费元数据/日志/事件/变更（大盘/详情/诊断工具本地通道）
 
-    Note over SCH: 失败处理：重试 + 告警自身Issue化<br/>同步水位保证幂等与断点续传<br/>适配层不直写存储，入库路径归应用服务所有
+    Note over COL: 失败处理：重试 + 水位不动（下次续传）<br/>collector 无业务语义：不生成 Issue、不发通知、不调应用层<br/>apiserver 停机不影响 collector 写入
 ```
+
+完整采集生命周期时序见《交互时序与生命周期》§6；remote 实时访问链路见该文档 §7。
 
 ### 4.3 时序指标查询代理时序图（远程实时数据流）
 
@@ -378,7 +431,7 @@ sequenceDiagram
 | 通道 | 数据 | 说明 |
 |---|---|---|
 | a 本地沉淀 | 元信息、告警、Issue、指标代理数据 | 直接查本地 |
-| b 实时直连 | 会话、锁、慢日志、执行计划 | 经实例接入网关：只读账号 + 审计 + 超时熔断 |
+| b 实时直连 | 会话、锁、慢日志、执行计划 | 经 remote 访问网关（平台侧 Go 程序）：凭证随发 + SQL 白名单双保险 + 按需建连即用即毁 + 执行审计直写 PG + 实例熔断 |
 | c 旧系统 API | 旧系统已有分析结果 | 经防腐层，未来可被通道 b 替换，工具层零改动 |
 
 ### 5.4 多 Agent 诊断调用时序图
@@ -499,6 +552,8 @@ stateDiagram-v2
 | 唯一事实源 | `DIAG_TASK` 表（含外采侧 `external_task_id`）；内存调度器仅作加速器，重启后从表恢复：`pending` 重新调度，`running` 超时任务经 `external_task_id` 向外采 Agent 对账后改判 |
 | 状态流水 | 每次状态迁移写 `task_event` 流水（任务ID / 事件 / 前态 / 后态 / 时间戳），供进度卡渲染与故障回溯 |
 | 幂等防重 | `call_id` 全局唯一 + 工具 `rate_limit`，防 Agent 规划循环重复提交分钟级任务 |
+| 续跑触发（v2.0） | wake 回调退役：apiserver 轮询 agent_tasks 检出 done → 创建 system_resume 轮续跑；agent_tasks 表为唯一集成通道（D35） |
+| 取消级联（v2.0） | 用户取消轮次时对 agent_tasks **限列写** cancel_requested=true；agent worker 观察后中止并置 cancelled |
 | 回写闭环 | 任务绑定 `session_id/turn_id`，完成后结果注入该轮次并生成结果卡（进度卡 → 诊断报告卡） |
 | 可观测 | 任务总线面板：积压量、平均耗时、失败率、对账差异数 |
 
@@ -591,6 +646,44 @@ erDiagram
         string scope_type "cluster/instance"
     }
 ```
+
+#### 6.1.1 instance_meta 拆分落地（参考 KubeBlocks 分层，v1.4）
+
+元数据域物理表参考 KubeBlocks「Cluster → Component → InstanceSet → Instance」分层思想设计（建表基准 `deploy/db/001_db_metadata.sql`，GORM 建模 `apiserver/internal/model/metadata.go`）：
+
+| 物理表 | 对应 KubeBlocks | 对应 §6.1 ER | 承载内容 |
+|---|---|---|---|
+| `db_cluster` | Cluster | CLUSTER | 集群/实体：环境、组织归属、HA/备份/切换模式、主库类型 |
+| `db_instance` | Component + InstanceSet（合并） | INSTANCE | 逻辑实例：引擎/版本/资源/状态/访问端点（vip/endpoint/port/账号） |
+| `db_instance_node` | Instance（副本） | INSTANCE_NODE | 物理副本节点：host 名/IP/端口/角色/OS |
+| `db_sync_watermark` | — | SYNC_WATERMARK | collector 同步水位（断点续传/幂等去重） |
+
+要点：
+
+- **来源与拆分**：旧 ucmdb `instance_meta`（46 列扁平，一条记录 = 1 集群 + 1 实例 + 最多 2 台主机）拆为 1 行 `db_cluster` + 1 行 `db_instance` + N 行 `db_instance_node`（`host_*1/host_*2` 成对列拆多行，支持一主两从、副本集等任意拓扑）；`ins_uuid` → `db_instance.source_id` 作 collector 幂等去重键。
+- **库类型兼容**：`db_type` 文本判别符（KubeBlocks `serviceKind` 思路）+ `extensions` jsonb 承载各类型差异字段，不为每种库单独建表。
+- **查询支撑**：`db_cluster(db_type/environment/name)` 索引支撑大盘与集群列表过滤；集群详情按 `db_instance(cluster_id)` → `db_instance_node(instance_id)` 两级下钻；主机视角按 `db_instance_node(host_ip)` 反查。
+- **写入边界**：本域为数据面白名单表，collector 直写、apiserver 只读消费；与现有 UI 演示模型 `clusters/instances` 并存，接入真实数据后由 `db_*` 表供前端消费。
+
+#### 6.1.2 数据面白名单表落地（v2.1）
+
+旧系统导出表（`ddl.sql`）评审定稿（基准 `deploy/db/002_whitelist.sql`，GORM 建模 `model/metadata.go`）：
+
+| 物理表 | 来源（ddl.sql） | 定位 | 消费方式（apiserver 只读聚合） |
+|---|---|---|---|
+| `alert_raw` | `alerts`（40 列） | 原始告警事件，`event_id` 去重锚点，长尾字段收 `raw` jsonb | 按对象+标题+级别聚合出告警中心视图（Critical→P1 / Major→P2 / 其余→P3，`min(fired_at)` 首触、`count` 次数）；Issue 化（fingerprint/状态机）在 §6.2 Issue 域后续实现 |
+| `change_ticket` | `changes`（14 列） | 变更工单，varchar 日期改 timestamptz，补集群/实例关联 | `GET /api/changes`：风险级别/对象/执行时间窗（闭区间）过滤，供诊断关联「当时是否有变更」 |
+| `slow_query_log` | `slow_query`（10 列） | 每次执行一行的事件流，补 `digest` 指纹与 `instance_id` 关联 | 按 digest GROUP BY 聚合出 SQL 诊断视图（平均耗时/最大扫描行数/执行次数）；实时慢日志快照走 remote，不落本表 |
+| —（不建） | `"lock"` | 锁状态秒级时效，落库即过期 | 按 §4.1 走 remote 实时采集，结论落诊断档案；将来死锁历史审计另立 `deadlock_event` 类事件表 |
+| —（待二期） | `series_meta` / `series_points` | 指标 | 继续走 mock/指标代理，二期本地时序库另定 |
+
+要点：
+
+- **消费端加工原则**：白名单表保持源值（级别原值、状态码、varchar 语义映射均在消费端完成），collector 无业务语义；演示种子按同一原则 mock（告警/慢SQL 聚合视图与原演示数据逐值一致）。
+- **对象关联**：三表均带可空 `instance_id`/`cluster_id` 逻辑外键；演示数据由种子回填，真实接入后由 collector best-effort 回填或消费端 JOIN 元数据域。
+- **演示实例 → 元数据实例解析**（慢SQL 按实例过滤）：名称精确匹配 → endpoint（ip:port）→ OB 租户 `extensions.units`（unit 所在 server_ip）兜底；解析失败回退全局。
+- **回退兼容**：白名单空表时 `/api/alerts`、slow-sqls、大盘回退 UI 演示表（`alert_records`/`slow_sqls`），老部署不受影响。
+- **测试**：纯函数单测（级别映射/格式化/时间参数容错）+ PG 集成测试（marker 自建自清：聚合正确性、回退、404、非法参数、时间窗闭区间边界、`+08:00` 未编码容错）+ 端到端实机验证。
 
 ### 6.2 Issue 域（告警 Issue 化）
 
@@ -758,24 +851,24 @@ erDiagram
 | 功能权限 | 平台自建 RBAC（角色 → 功能：查看 / 诊断 / 问数 / 管理），不复用旧权限数据 |
 | 数据权限 | 实例范围授权（集群级 / 实例级），权限判定本地完成 |
 | AI 侧权限 | 对话查询经权限网关注入可见实例范围（NL2Metric 防越权） |
-| 实例直连 | 统一实例接入网关：只读账号、操作审计、超时熔断；禁止工具自建连接 |
+| 实例直连 | 统一 remote 访问网关：凭证表（加密）随发、只读双保险（账号 + SQL 白名单）、执行审计直写 PG、超时熔断；禁止工具自建连接 |
 | 模型数据安全 | AI 平台适配层内置敏感信息过滤与调用审计 |
 
-> **MVP 降级（v1.1 共识）**：内网开发验证阶段平台**无鉴权**——权限网关以"全量实例范围"的桩实现接入（接口与调用链保留，二期接 SSO/RBAC 后替换桩即可）；实例接入网关的只读账号/操作审计/超时熔断**不降级**（直连生产实例的安全底线）。
+> **MVP 降级（v1.1 共识）**：内网开发验证阶段平台**无鉴权**——权限网关以"全量实例范围"的桩实现接入（接口与调用链保留，二期接 SSO/RBAC 后替换桩即可）；remote 访问网关的只读双保险/执行审计/超时熔断**不降级**（直连生产实例的安全底线）。
 
 ---
 
 ## 9. 兼容性策略（旧系统集成收口）
 
-所有旧系统调用唯一出口为**旧系统适配层（防腐层）**，一期集成点收敛为三类 + 一个工具：
+旧系统调用按**批量拉取 / 按需查询**分路收口（v1.3）：批量拉取唯一出口为 **collector**，按需查询与异步调用唯一出口为 **apiserver**；一期集成点收敛为：
 
-| 集成点 | 方向 | 用途 |
-|---|---|---|
-| DBaaS 元数据适配器 | 拉取（定时） | 集群/实例/拓扑同步 |
-| 告警系统适配器 | 拉取（增量水位） | 告警/事件同步入 Issue |
-| 监控 API 适配器 | 按需查询 | 时序指标查询代理的上游 |
-| 外采诊断 Agent 适配器 | 调用（异步） | 封装为诊断工具，黑盒契约 |
-| 工单系统适配器 | —— | 三期 L2 动作审批时启用 |
+| 集成点 | 归属 | 方向 | 用途 |
+|---|---|---|---|
+| DBaaS 元数据适配器 | collector | 拉取（定时） | 集群/实例/拓扑同步 |
+| 告警/日志适配器 | collector | 拉取（增量水位） | 告警/事件/日志/变更同步（apiserver 消费 Issue 化） |
+| 监控 API 适配器 | apiserver | 按需查询 | 时序指标查询代理的上游 |
+| 外采诊断 Agent 适配器 | apiserver | 调用（异步） | 封装为诊断工具，黑盒契约 |
+| 工单系统适配器 | apiserver | —— | 三期 L2 动作审批时启用 |
 
 适配器层统一承担：Schema 归一化、重试与水位、限流、版本兼容（旧 API 变更仅改适配器）。
 
@@ -785,7 +878,7 @@ erDiagram
 
 | 期 | 范围 |
 |---|---|
-| **MVP（≈3 个月 · 3-5 人 · 真实数据接入）** | ① 数据底座：PG 单库 + DBaaS 元数据同步 + 告警同步 Issue 化 + 指标查询代理接真实旧监控 API（最小指标白名单，§4.4）；② Go apiserver：对外 REST + chat SSE 透传 + 内部数据 API + 任务总线调度 + 全部旧系统适配层；③ Python agent 集群：LangGraph 四端口封装 + 路由/诊断/问数专家 + 自建诊断工具集（指标异常/会话快照/慢SQL/锁分析）+ 卡片输出；④ 前端 React 重写：大盘（完整编辑器复刻）+ 多会话 chat + 卡片渲染器注册表；⑤ 外采诊断：落地 vendor_agent 适配器规范与 shadow 注册位（契约到手后仅实现适配器即接入，不阻塞交付）。**明确不做**：鉴权/SSO、页面上下文注入、自治服务页、知识库问答、L1/L2 动作、Redis/MQ/对象存储、MCP/CLI/Skills 插件生态 |
+| **MVP（真实数据接入；实现进度见 docs/ROADMAP.md）** | ① 数据底座：PG 单库 + collector 接入（既有程序：DBaaS 元数据/告警/日志同步直写白名单表）+ 告警 Issue 化 + 指标查询代理接真实旧监控 API（最小指标白名单，§4.4）；② Go apiserver：对外 REST + chat SSE 终结 + 内部数据 API + 任务总线调度 + 指标查询代理 + remote（Go · 平台侧 ×1）实例只读访问网关；③ Python agent 集群：LangGraph 四端口封装 + 路由/诊断/问数专家 + 自建诊断工具集（指标异常/会话快照/慢SQL/锁分析）+ 卡片输出；④ 前端 React 重写：大盘（完整编辑器复刻）+ 多会话 chat + 卡片渲染器注册表；⑤ 外采诊断：落地 vendor_agent 适配器规范与 shadow 注册位（契约到手后仅实现适配器即接入，不阻塞交付）。**明确不做**：鉴权/SSO、页面上下文注入、自治服务页、知识库问答、L1/L2 动作、Redis/MQ/对象存储、MCP/CLI/Skills 插件生态 |
 | **二期** | 知识库问答：help_expert + 平台说明书 RAG + open_link URL 跳转（§11.1）；页面上下文注入与行级"问AI"（§11.2）；SSO + RBAC + 实例范围授权（替换权限桩）；自治服务页：异步任务中心 + 建议展示 + 手动触发（§11.3）；外采诊断正式接入（若 MVP 期内未完成）；L1 动作提议与确认执行；Redis/对象存储按需引入；MCP/CLI/Skills 插件生态；自建采集 Agent + 本地时序库（数据源切换） |
 | **三期** | L2 动作衔接旧工单审批；更多领域专家 Agent；⌘K 命令面板；旧系统模块分批下线 |
 
@@ -835,9 +928,10 @@ erDiagram
 Go apiserver（`apiserver/`，Gin + GORM，存储复用既有 PostgreSQL 独立库 `db_cockpit`）已按前端页面落地，对 §7 查询协议与 §3.5 边界做如下实施修订：
 
 1. **响应包裹**：面向前端的全部 REST 接口统一包裹 `{code, message, data}`（成功 `code=0`；错误保留 HTTP 4xx/5xx，`code` 镜像错误码）。`/api/dash/series|annotations` 同样包裹（前端 `query.ts` 已加解包适配）。例外：`GET /healthz` 裸 "ok"；Chat SSE 为事件流不包裹。
-2. **Chat SSE**：`GET /api/chat/sessions/:id/stream`（六事件 thought/token/card/progress/done/error），`id:` 行携带会话内单调序号，支持 `last_event_id` / `Last-Event-ID` 断线重放；事件落库 `chat_turn_events`。MVP 由 Go 内置模拟 agent（移植前端 mockAgent 场景脚本）产生；`AGENT_MODE=upstream` 时整组 `/api/chat/*` 透明代理 Python agentcluster。
+2. **Chat SSE**：`GET /api/chat/sessions/:id/stream`（六事件 thought/token/card/progress/done/error），`id:` 行携带会话内单调序号，支持 `last_event_id` / `Last-Event-ID` 断线重放；事件落库 `chat_turn_events`。MVP 由 Go 内置模拟 agent（移植前端 mockAgent 场景脚本）产生；agentcluster 就绪后 `AGENT_MODE=upstream` 切换**事件源**：Go 经 `POST /internal/exec/turns` 消费 Python 执行流并经会话总线转发（v1.2 起 Go 终结 SSE，不再整组反代；详见 §3.5 与《交互时序与生命周期》）。
 3. **指标序列**：服务端按与前端 MockProvider 相同的确定性算法（mulberry32 种子随机游走）生成，同一请求参数与原 mock 输出逐值一致（对拍黄金向量见 `apiserver/internal/metrics/metrics_test.go`）。
 4. **会话/大盘存储迁移**：Chat 会话与监控大盘改为服务端主存储（`chat_sessions/chat_messages`、`dashboards` JSONB），前端 localStorage 首次访问时一次性导入，apiserver 不可达时回退本地 mock 继续演示。
 5. **写操作（模拟语义）**：创建库/租户/账号、参数修改（pending + 历史）、Kill 会话、切换演练、Unit 扩缩容均为对 `db_cockpit` 的真实状态变更，危险操作写 `audit_logs`。
 6. **内部接口**：`/internal/*`（§3.5）路由已注册、一律 501 `{code:1001}`，待 Python 侧就绪后挂实现。
 7. **接口金样**：`contracts/api/*.json` 为各端点实测响应快照，是前后端联调与回归的契约基线。
+8. **数据面拆分（v1.3 规划，表结构已于 v2.1 定稿）**：collector（既有独立程序）直写数据面白名单表（六类，定稿进展见 §6.1.1/§6.1.2 与《交互时序与生命周期》§8.2；基准 SQL `deploy/db/`）、remote（Go · 平台侧 ×1 · 仅 SQL）承接 Probe 直连通道——**两程序尚未进 compose**（落地时按 §3.4.1 组件清单追加服务，五容器形态，PG 复用宿主机既有实例）；白名单消费端聚合已先行（告警/慢SQL/变更/元数据下钻 API）。

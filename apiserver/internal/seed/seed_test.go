@@ -19,6 +19,10 @@ func openTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Skipf("local postgres unreachable: %v", err)
 	}
+	// 与生产路径一致（db.go 先 AutoMigrate 再 seed.Run），覆盖新增的白名单表
+	if err := gdb.AutoMigrate(model.AllModels()...); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
 	return gdb
 }
 
@@ -39,5 +43,18 @@ func TestSeedIdempotent(t *testing.T) {
 	gdb.Model(&model.Cluster{}).Count(&n2)
 	if n2 != 4 {
 		t.Fatalf("second seed must not duplicate: got %d clusters", n2)
+	}
+	// 白名单种子同样幂等：重复 Run 不增行
+	var a1, a2 int64
+	gdb.Model(&model.AlertRaw{}).Count(&a1)
+	if err := Run(gdb); err != nil {
+		t.Fatalf("seed run 3: %v", err)
+	}
+	gdb.Model(&model.AlertRaw{}).Count(&a2)
+	if a2 != a1 {
+		t.Fatalf("whitelist seed must be idempotent: alerts %d → %d", a1, a2)
+	}
+	if a1 == 0 {
+		t.Fatalf("whitelist alert seed should not be empty")
 	}
 }

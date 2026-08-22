@@ -161,6 +161,7 @@ export interface ChatMessage {
 export interface ChatSession {
   id: string; title: string; createdAt: number; updatedAt: number;
   messages: ChatMessage[];
+  draft?: boolean; // 本地草稿标记：新建会话未发首条消息前纯前端存在（零后端写入），服务端响应不含此字段
 }
 
 /* ---------- SSE 事件（对齐执行框架 §9，mock 侧） ---------- */
@@ -171,3 +172,27 @@ export type AgentEvent =
   | { type: 'progress'; task_id: string; progress: number; stage: string }
   | { type: 'done' }
   | { type: 'error'; code: string; message: string };
+
+/* ---------- 设置中心 / 插件中心配置 ---------- */
+export interface ModelConfig {
+  id: string; name: string; provider: string; baseUrl: string;
+  apiKeyMask: string; model: string; params: unknown; remark: string;
+  enabled: boolean; createdAt: number; updatedAt: number;
+}
+export interface EmbeddingConfig {
+  id: string; name: string; baseUrl: string;
+  apiKeyMask: string; model: string; dimension: number; params: unknown; remark: string;
+  enabled: boolean; createdAt: number; updatedAt: number;
+}
+export interface McpServerConfig {
+  id: string; name: string; transport: 'stdio' | 'http'; command: string;
+  args: unknown; env: unknown; remark: string;
+  enabled: boolean; createdAt: number; updatedAt: number;
+}
+export interface SkillConfig {
+  id: string; name: string; description: string; content: string;
+  enabled: boolean; createdAt: number; updatedAt: number;
+}
+export interface TestResult {
+  ok: boolean; latencyMs: number; message: string; dimension?: number;
+}

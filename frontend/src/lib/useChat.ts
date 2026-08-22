@@ -3,7 +3,7 @@
  * apiserver 不可达时整链路回退本地 mock（runMockTurn），演示不依赖后端存活。
  */
 import { useEffect, useRef, useState } from 'react';
-import type { AgentEvent, ChatMessage, ChatSession } from './types';
+import type { AgentEvent, ChatMessage, ChatSession, ModelConfig } from './types';
 import { apiGet, apiPost, apiDelete } from './api';
 import { runMockTurn } from './mockAgent';
 import { loadSessions, persist, newSession, uid } from './chatSessions';
@@ -34,6 +34,8 @@ export function useChat() {
   const [activeId, setActiveId] = useState<string>(() => loadSessions()[0]?.id ?? '');
   const [streaming, setStreaming] = useState(false);
   const [ready, setReady] = useState(false); // 服务端会话同步完成（或离线判定）后可消费草稿
+  const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>([]); // 已启用的模型配置（选择器候选）
+  const [modelBySession, setModelBySession] = useState<Record<string, string>>({}); // 会话级模型选择（仅前端内存）
   const offlineRef = useRef(false);
   const seqRef = useRef<Record<string, number>>({});
   const esRef = useRef<EventSource | null>(null);
@@ -62,6 +64,16 @@ export function useChat() {
     })();
   }, []);
 
+  /* 拉取已启用的模型配置（失败保持空 → 选择器显示"未配置模型"） */
+  useEffect(() => {
+    (async () => {
+      try {
+        const list = await apiGet<ModelConfig[]>('/api/model-configs');
+        setModelConfigs((list || []).filter(c => c.enabled));
+      } catch (e) { /* 离线忽略 */ }
+    })();
+  }, []);
+
   /* localStorage 镜像（离线时数据连续） */
   useEffect(() => { persist(sessions); }, [sessions]);
 
@@ -70,6 +82,19 @@ export function useChat() {
   /* 最新 active 的引用：避免草稿自动发送等异步回调捕获过期闭包 */
   const activeRef = useRef(active);
   activeRef.current = active;
+
+  /* 当前会话的模型：已选（校验仍存在）→ 第一个启用配置 → null */
+  const activeModelId = (() => {
+    if (!active) return null;
+    const picked = modelBySession[active.id];
+    if (picked && modelConfigs.some(c => c.id === picked)) return picked;
+    return modelConfigs[0]?.id ?? null;
+  })();
+  const setActiveModelId = (id: string) => {
+    const act = activeRef.current;
+    if (!act) return;
+    setModelBySession(m => ({ ...m, [act.id]: id }));
+  };
 
   const updateSession = (id: string, fn: (s: ChatSession) => ChatSession) => {
     setSessions(ss => ss.map(s => (s.id === id ? { ...fn(s), updatedAt: Date.now() } : s)));
@@ -134,6 +159,7 @@ export function useChat() {
     const act = activeRef.current;
     if (!q || streaming || !act) return q;
     const sid = act.id;
+    const isDraft = !!act.draft;
     const botId = uid();
     updateSession(sid, s => ({
       ...s,
@@ -152,16 +178,25 @@ export function useChat() {
     }
     (async () => {
       try {
-        await apiPost(`/api/chat/sessions/${sid}/turns`, { text: q });
-        const last = seqRef.current[sid] ?? 0;
-        const es = new EventSource(`/api/chat/sessions/${sid}/stream?last_event_id=${last}`);
+        let targetSid = sid;
+        if (isDraft) {
+          // 惰性初始化（D39）：首条消息才创建服务端会话——草稿转正（换 id、保留已乐观渲染的消息）
+          const s = await apiPost<ChatSession>('/api/chat/sessions', {});
+          setSessions(ss => ss.map(x => (x.id === sid ? { ...s, messages: x.messages } : x)));
+          setActiveId(cur => (cur === sid ? s.id : cur));
+          setModelBySession(m => (sid in m ? { ...m, [s.id]: m[sid] } : m));
+          targetSid = s.id;
+        }
+        await apiPost(`/api/chat/sessions/${targetSid}/turns`, { text: q });
+        const last = seqRef.current[targetSid] ?? 0;
+        const es = new EventSource(`/api/chat/sessions/${targetSid}/stream?last_event_id=${last}`);
         esRef.current = es;
         es.onmessage = (e: MessageEvent) => {
           const seq = Number(e.lastEventId);
-          if (Number.isFinite(seq) && seq > 0) seqRef.current[sid] = seq;
+          if (Number.isFinite(seq) && seq > 0) seqRef.current[targetSid] = seq;
           let ev: AgentEvent;
           try { ev = JSON.parse(e.data); } catch (err) { return; }
-          applyEvent(sid, botId, ev);
+          applyEvent(targetSid, botId, ev);
         };
         // onerror：EventSource 自动重连（带 Last-Event-ID），由服务端重放补齐
       } catch (e) {
@@ -184,23 +219,18 @@ export function useChat() {
     })));
   };
 
-  const createSession = async () => {
-    if (!offlineRef.current) {
-      try {
-        const s = await apiPost<ChatSession & { messages?: ChatMessage[] }>('/api/chat/sessions', {});
-        const created: ChatSession = { ...s, messages: s.messages || [] };
-        setSessions(ss => [created, ...ss]);
-        setActiveId(created.id);
-        return;
-      } catch (e) { /* 落回本地 */ }
-    }
+  /* 新建会话 = 前端本地草稿（D39 惰性初始化）：零后端写入，首条消息发送时才创建服务端会话 */
+  const createSession = () => {
     const s = newSession();
     setSessions(ss => [s, ...ss]);
     setActiveId(s.id);
   };
 
   const removeSession = (id: string) => {
-    if (!offlineRef.current) apiDelete(`/api/chat/sessions/${id}`).catch(() => { /* 离线忽略 */ });
+    const target = sessions.find(x => x.id === id);
+    if (!offlineRef.current && target && !target.draft) {
+      apiDelete(`/api/chat/sessions/${id}`).catch(() => { /* 离线忽略 */ });
+    }
     setSessions(ss => {
       const next = ss.filter(x => x.id !== id);
       const list = next.length ? next : [newSession()];
@@ -219,5 +249,8 @@ export function useChat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
-  return { sessions, active, activeId, setActiveId, streaming, send, stop, createSession, removeSession };
+  return {
+    sessions, active, activeId, setActiveId, streaming, send, stop, createSession, removeSession,
+    modelConfigs, activeModelId, setActiveModelId,
+  };
 }

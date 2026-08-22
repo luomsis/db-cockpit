@@ -18,7 +18,8 @@ import (
 
 type ChatHandler struct {
 	H
-	RT *agent.Runtime
+	RT            *agent.Runtime
+	ConfigVersion string // 落到 chat_turns 的配置版本快照（builtin-v0 / upstream-v0）
 }
 
 func (ch *ChatHandler) findSession(c *gin.Context) (*model.ChatSession, bool) {
@@ -28,6 +29,19 @@ func (ch *ChatHandler) findSession(c *gin.Context) (*model.ChatSession, bool) {
 		return nil, false
 	}
 	return &s, true
+}
+
+// cancelRunningTurns：断开在跑执行流并把遗留 running 轮次置 cancelled
+// （活跃轮次由其 finalize 落库；此处的直接更新兜底崩溃后遗留的僵尸行）。
+func (ch *ChatHandler) cancelRunningTurns(sessionID string) {
+	ch.RT.Cancel(sessionID)
+	ch.DB.Model(&model.ChatTurn{}).Where("session_id = ? AND status = ?", sessionID, "running").
+		Updates(map[string]interface{}{"status": "cancelled", "updated_at": time.Now().UnixMilli()})
+	// 任务取消级联（限列写）：agent worker 观察 cancel_requested 后自行中止（依赖规则②）
+	ch.DB.Model(&model.AgentTask{}).
+		Where("session_id = ? AND status IN ? AND cancel_requested = ?",
+			sessionID, []string{"pending", "running"}, false).
+		Update("cancel_requested", true)
 }
 
 func (ch *ChatHandler) nextMsgSeq(sessionID string) int {
@@ -69,7 +83,7 @@ func (ch *ChatHandler) CreateSession(c *gin.Context) {
 		title = "新会话"
 	}
 	now := time.Now().UnixMilli()
-	s := model.ChatSession{ID: agent.NewID("sess"), Title: title, CreatedAt: now, UpdatedAt: now}
+	s := model.ChatSession{ID: agent.NewID("sess"), UserID: "anonymous", Title: title, CreatedAt: now, UpdatedAt: now}
 	if err := ch.DB.Create(&s).Error; err != nil {
 		envelope.Internal(c, err)
 		return
@@ -95,7 +109,9 @@ func (ch *ChatHandler) DeleteSession(c *gin.Context) {
 	if !ok {
 		return
 	}
+	ch.cancelRunningTurns(s.ID) // 有在跑轮次先取消（docs §3.3-F3）
 	ch.DB.Where("session_id = ?", s.ID).Delete(&model.ChatMessage{})
+	ch.DB.Where("session_id = ?", s.ID).Delete(&model.ChatTurn{})
 	ch.DB.Where("session_id = ?", s.ID).Delete(&model.ChatTurnEvent{})
 	ch.DB.Delete(s)
 	ch.RT.Drop(s.ID)
@@ -160,21 +176,53 @@ func (ch *ChatHandler) ImportSessions(c *gin.Context) {
 	envelope.OK(c, gin.H{"imported": imported})
 }
 
-// SubmitTurn：落用户消息并触发后台 agent 执行；返回 turnId。
+// SubmitTurn：幂等 + 取消替换 → 落用户消息与轮次行（running）→ 触发后台执行；返回 turnId。
 func (ch *ChatHandler) SubmitTurn(c *gin.Context) {
 	s, ok := ch.findSession(c)
 	if !ok {
 		return
 	}
 	var body struct {
-		Text string `json:"text" binding:"required"`
+		Text            string `json:"text" binding:"required"`
+		ClientRequestID string `json:"client_request_id"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		envelope.BadRequest(c, "text required")
 		return
 	}
+	// 幂等：同 client_request_id 的重复提交（前端重试/双击）直接返回已创建轮次（docs §3.3-F1）
+	if body.ClientRequestID != "" {
+		var exist model.ChatTurn
+		if err := ch.DB.Where("client_request_id = ?", body.ClientRequestID).First(&exist).Error; err == nil {
+			var msg model.ChatMessage
+			ch.DB.Where("session_id = ? AND turn_id = ? AND role = ?", exist.SessionID, exist.ID, "user").
+				Order("seq desc").First(&msg)
+			envelope.OK(c, gin.H{"turnId": exist.ID, "duplicated": true, "message": msg})
+			return
+		}
+	}
+	// 取消替换：上一轮仍在 running → 隐含取消（docs §3.3-D2）
+	ch.cancelRunningTurns(s.ID)
+
+	turnID := agent.NewID("turn")
+	now := time.Now().UnixMilli()
+	var turnSeq int
+	ch.DB.Model(&model.ChatTurn{}).Where("session_id = ?", s.ID).
+		Select("COALESCE(MAX(seq), 0)").Scan(&turnSeq)
+	var crid *string // 仅显式携带幂等键时参与唯一去重
+	if body.ClientRequestID != "" {
+		crid = &body.ClientRequestID
+	}
+	if err := ch.DB.Create(&model.ChatTurn{
+		ID: turnID, SessionID: s.ID, Seq: turnSeq + 1, Kind: "user", Status: "running",
+		ClientRequestID: crid, ConfigVersion: ch.ConfigVersion,
+		UserMsg: body.Text, CreatedAt: now, UpdatedAt: now,
+	}).Error; err != nil {
+		envelope.Internal(c, err)
+		return
+	}
 	msg := model.ChatMessage{
-		ID: agent.NewID("msg"), SessionID: s.ID, Seq: ch.nextMsgSeq(s.ID),
+		ID: agent.NewID("msg"), SessionID: s.ID, TurnID: turnID, Seq: ch.nextMsgSeq(s.ID),
 		Role: "user", Text: body.Text,
 		Thoughts: datatypes.JSON([]byte("[]")), Cards: datatypes.JSON([]byte("[]")), Status: "final",
 	}
@@ -192,8 +240,7 @@ func (ch *ChatHandler) SubmitTurn(c *gin.Context) {
 		}
 		ch.DB.Model(&model.ChatSession{}).Where("id = ?", s.ID).Update("title", string(title))
 	}
-	turnID := agent.NewID("turn")
-	ch.DB.Model(&model.ChatSession{}).Where("id = ?", s.ID).Update("updated_at", time.Now().UnixMilli())
+	ch.DB.Model(&model.ChatSession{}).Where("id = ?", s.ID).Update("updated_at", now)
 	ch.RT.StartTurn(s.ID, turnID, body.Text)
 	envelope.OK(c, gin.H{"turnId": turnID, "message": msg})
 }
@@ -203,7 +250,7 @@ func (ch *ChatHandler) CancelTurn(c *gin.Context) {
 	if !ok {
 		return
 	}
-	ch.RT.Cancel(s.ID)
+	ch.cancelRunningTurns(s.ID)
 	envelope.OK(c, gin.H{"ok": true})
 }
 

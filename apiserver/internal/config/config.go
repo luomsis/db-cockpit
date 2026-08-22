@@ -6,8 +6,9 @@ type Config struct {
 	Port             string
 	DBDSN            string
 	AuthEnabled      bool
-	AgentMode        string // builtin | upstream
+	AgentMode        string // builtin | upstream（事件源选择，非路由切换：Go 始终终结 SSE）
 	AgentUpstreamURL string
+	AgentExecURL     string // 完整 exec 端点；缺省由 AgentUpstreamURL + /internal/exec/turns 推导
 }
 
 func env(key, def string) string {
@@ -24,5 +25,6 @@ func Load() Config {
 		AuthEnabled:      env("AUTH_ENABLED", "false") == "true",
 		AgentMode:        env("AGENT_MODE", "builtin"),
 		AgentUpstreamURL: env("AGENT_UPSTREAM_URL", ""),
+		AgentExecURL:     env("AGENT_EXEC_URL", ""),
 	}
 }

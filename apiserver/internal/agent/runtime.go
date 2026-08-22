@@ -1,15 +1,16 @@
 package agent
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"db-cockpit/apiserver/internal/model"
@@ -33,11 +34,13 @@ type ThoughtEvent struct {
 	Step     int    `json:"step"`
 	ToolName string `json:"tool_name"`
 	Status   string `json:"status"`
+	Agent    string `json:"agent,omitempty"` // 产出事件的 subagent 标识（动态装配对用户可见可追溯）
 }
 
 type TokenEvent struct {
 	Type      string `json:"type"`
 	TextDelta string `json:"text_delta"`
+	Agent     string `json:"agent,omitempty"`
 }
 
 type CardEvent struct {
@@ -54,7 +57,8 @@ type ProgressEvent struct {
 }
 
 type DoneEvent struct {
-	Type string `json:"type"`
+	Type  string          `json:"type"`
+	Usage json.RawMessage `json:"usage,omitempty"` // token 用量（可缺省）
 }
 
 type ErrorEvent struct {
@@ -63,14 +67,22 @@ type ErrorEvent struct {
 	Message string `json:"message"`
 }
 
+/* ================= 事件源（AGENT_MODE 选择：builtin 场景 / agentcluster exec 执行流） ================= */
+
+// TurnSource 产出一次轮次的执行事件。Run 返回即本轮执行结束；
+// 正常路径应已发出 done 或 error 终态事件（未发且未被取消时由 StartTurn 兜底 unexpected_end）。
+type TurnSource interface {
+	Run(t *turn)
+}
+
 /* ================= 会话运行时：事件发布 / 订阅 / 取消 ================= */
 
 type sessionRT struct {
 	mu      sync.Mutex
-	seq     int64          // 已发布的最后一个事件序号
-	events  [][]byte       // 本次进程生命周期内的事件（json）
+	seq     int64             // 已发布的最后一个事件序号
+	events  [][]byte          // 本次进程生命周期内的事件（json）
 	subs    map[chan eventMsg]struct{}
-	cancelC chan struct{} // 当前 turn 的取消信号
+	cancelC chan struct{}     // 当前 turn 的取消信号（nil = 无活跃轮次）
 }
 
 type eventMsg struct {
@@ -97,10 +109,14 @@ type Runtime struct {
 	mu       sync.Mutex
 	sessions map[string]*sessionRT
 	db       *gorm.DB
+	source   TurnSource
 }
 
-func NewRuntime(gdb *gorm.DB) *Runtime {
-	return &Runtime{sessions: map[string]*sessionRT{}, db: gdb}
+func NewRuntime(gdb *gorm.DB, source TurnSource) *Runtime {
+	if source == nil {
+		source = NewBuiltinSource()
+	}
+	return &Runtime{sessions: map[string]*sessionRT{}, db: gdb, source: source}
 }
 
 func (r *Runtime) rt(sessionID string) *sessionRT {
@@ -172,14 +188,19 @@ func (r *Runtime) publish(sessionID, turnID string, ev interface{}) {
 		}
 	}
 	rt.mu.Unlock()
-	_ = r.db.Create(&model.ChatTurnEvent{Seq: seq, SessionID: sessionID, TurnID: turnID, Event: raw}).Error
+	if err := r.db.Create(&model.ChatTurnEvent{Seq: seq, SessionID: sessionID, TurnID: turnID, Event: raw}).Error; err != nil {
+		// 落库失败只影响断线重放，不影响实时流；但必须可见，否则会静默丢失重放数据
+		log.Printf("[agent] persist event %s#%d: %v", sessionID, seq, err)
+	}
 }
 
-// Cancel 取消会话当前 turn（场景通过 guard 感知）。
+// Cancel 取消会话当前 turn（执行源经 ctx 感知；upstream 表现为断开 exec 连接）。
+// 取 nil 防重复 close，保证 Cancel/StartTurn 并发安全。
 func (r *Runtime) Cancel(sessionID string) {
 	rt := r.rt(sessionID)
 	rt.mu.Lock()
 	c := rt.cancelC
+	rt.cancelC = nil
 	rt.mu.Unlock()
 	if c != nil {
 		close(c)
@@ -188,18 +209,24 @@ func (r *Runtime) Cancel(sessionID string) {
 
 /* ================= turn 执行 ================= */
 
-type scenarioFn func(t *turn)
-
 type turn struct {
 	r         *Runtime
 	db        *gorm.DB
 	sessionID string
 	turnID    string
-	cancelC   chan struct{}
+	input     string         // 用户输入原文（builtin 选场景 / upstream 作为 user_msg）
+	cancelC   chan struct{}  // 取消信号（用户取消 / 取消替换 / 会话删除）
+	ctx       context.Context // 随 cancelC 取消；upstream 据此断开 exec 连接（断连即取消）
 
-	text      strings.Builder
-	thoughts  []ThoughtEvent
-	cards     []CardEnvelope
+	text     strings.Builder
+	thoughts []ThoughtEvent
+	cards    []CardEnvelope
+
+	done     bool
+	usage    json.RawMessage
+	failOnce sync.Once
+	errCode  string
+	errMsg   string
 }
 
 func (t *turn) guard() bool {
@@ -218,7 +245,7 @@ func (t *turn) emitToken(delta string) {
 	t.emit(TokenEvent{Type: "token", TextDelta: delta})
 }
 
-// say：3 字符一片、24ms 间隔流式输出（与前端 mock 节奏一致）
+// say：3 字符一片、tickMs 间隔流式输出（与前端 mock 节奏一致）
 func (t *turn) say(text string, tickMs int) {
 	t.emitToken("")
 	runes := []rune(text)
@@ -259,143 +286,30 @@ func (t *turn) sleep(ms int) {
 	}
 }
 
-/* ---------- 场景脚本（移植 mockAgent.ts） ---------- */
-
-var reGreeting = mustRegexp(`你好|hi|hello|帮助|你能`)
-var reAlert = mustRegexp(`告警`)
-var reDiag = mustRegexp(`诊断|变慢|排查|根因|为什么.*(慢|卡)|分析.*实例`)
-var reDataqa = mustRegexp(`QPS|qps|指标|趋势|多少|统计|查询`)
-
-func mustRegexp(expr string) *regexp.Regexp {
-	return regexp.MustCompile(expr)
+// markFailed：记录首个失败原因（once 保护，看门狗与读循环并发触发时取先到者）。
+func (t *turn) markFailed(code, msg string) {
+	t.failOnce.Do(func() { t.errCode, t.errMsg = code, msg })
 }
 
-func (t *turn) alertCount() int {
-	var n int64
-	t.db.Model(&model.AlertRecord{}).Count(&n)
-	return int(n)
-}
-
-func (t *turn) scenarioDiagnosis() {
-	t.say("好的，我将对 prod-ob-core-01 的 trade_tenant 租户发起诊断，先采集指标与告警证据：\n\n", 24)
-	t.thought("builtin_get_metrics", 800)
-	if t.guard() {
-		return
-	}
-	t.emitCard("create", metricChartCard("CPU 使用率（近 24h）", "cpu", 55, 14, "%", []chartThreshold{{Value: 85, Label: "告警阈值", Severity: "warning"}}))
-	t.thought("builtin_list_alerts", 600)
-	if t.guard() {
-		return
-	}
-	t.say("指标显示 CPU 在 14:00 后异常飙升，继续采集会话快照与慢 SQL 证据：\n\n", 24)
-	t.thought("builtin_session_snapshot", 900)
-	if t.guard() {
-		return
-	}
-	var sessions []model.RuntimeSession
-	t.db.Order("id desc").Find(&sessions)
-	t.emitCard("create", sessionsTableCard(sessions))
-	t.sleep(300)
-
-	taskID := fmt.Sprintf("task_%x", time.Now().UnixMilli())
-	t.emitCard("create", taskProgressCard(taskID))
-	t.say("\n\n初步证据已确认异常，已提交异步深度诊断任务（多指标长时窗扫描），完成后我将汇总交叉验证结论。", 24)
-	t.sleep(400)
-
-	stages := []string{"多指标长时窗扫描", "异常区间关联分析", "根因假设生成"}
-	progressSeq := [][2]int{{15, 0}, {45, 0}, {70, 1}, {95, 2}}
-	for _, p := range progressSeq {
-		if t.guard() {
+// upsertCard：card 事件按 card_id 就地合并（create/update 幂等，装配最终态卡片列表）。
+func (t *turn) upsertCard(card CardEnvelope) {
+	for i := range t.cards {
+		if t.cards[i].CardID == card.CardID {
+			t.cards[i] = card
 			return
 		}
-		t.emit(ProgressEvent{Type: "progress", TaskID: taskID, Progress: float64(p[0]), Stage: stages[p[1]] + "…"})
-		t.sleep(900)
 	}
-	if t.guard() {
-		return
-	}
-	t.emit(ProgressEvent{Type: "progress", TaskID: taskID, Progress: 100, Stage: "完成"})
-	t.sleep(500)
-	if t.guard() {
-		return
-	}
-	t.emitCard("update", diagnosisReportCard())
-	t.sleep(200)
-	t.say("\n\n诊断报告已生成：根因是 trade_order.status 缺索引引发全表扫描（置信度 92%），锁等待为次生影响。可点击卡片查看完整证据链，或直接追问。", 24)
-	t.emit(DoneEvent{Type: "done"})
+	t.cards = append(t.cards, card)
 }
 
-func (t *turn) scenarioAlerts() {
-	t.thought("builtin_list_alerts", 700)
-	if t.guard() {
-		return
-	}
-	var alerts []model.AlertRecord
-	t.db.Order("id asc").Find(&alerts)
-	t.emitCard("create", alertsTableCard(alerts))
-	// 按级别统计，P1 取首条作为重点提示
-	cnt := map[string]int{}
-	var topP1 *model.AlertRecord
-	for i := range alerts {
-		cnt[alerts[i].Severity]++
-		if alerts[i].Severity == "P1" && topP1 == nil {
-			topP1 = &alerts[i]
-		}
-	}
-	var text string
-	if topP1 != nil {
-		text = fmt.Sprintf("当前共 %d 条活跃告警（P1 %d / P2 %d / P3 %d）。最高优先级：%s — %s。\n\n建议优先处理 P1，可直接对我说「诊断 %s」。",
-			len(alerts), cnt["P1"], cnt["P2"], cnt["P3"], topP1.Name, topP1.Title, topP1.Name)
-	} else {
-		text = fmt.Sprintf("当前共 %d 条活跃告警（P1 0 / P2 %d / P3 %d），无 P1 级紧急告警。", len(alerts), cnt["P2"], cnt["P3"])
-	}
-	t.say(text, 24)
-	t.emit(DoneEvent{Type: "done"})
-}
-
-func (t *turn) scenarioDataqa() {
-	t.thought("builtin_get_metrics", 700)
-	if t.guard() {
-		return
-	}
-	t.emitCard("create", metricChartCard("全局 QPS 趋势（近 24h）", "qps", 18500, 4200, "", nil))
-	t.say("近 24h 全局 QPS 均值约 18.5k，14:00 起出现约 35% 的流量高峰并伴随慢 SQL 增多。需要看集群维度对比或切时间窗，可以直接告诉我。", 24)
-	t.emit(DoneEvent{Type: "done"})
-}
-
-func (t *turn) scenarioGreeting() {
-	t.say("你好！我是 DB Cockpit 智能运维助手 🤖\n\n我可以帮你：\n• 诊断实例性能异常（指标 → 会话 → 慢 SQL → 深度扫描全链路）\n• 查询平台运维数据（QPS / 告警 / 慢 SQL 统计）\n• 分析锁等待与长事务根因\n\n试着问我：「当前有哪些告警实例？」或「诊断 trade_tenant」", 20)
-	t.emit(DoneEvent{Type: "done"})
-}
-
-func (t *turn) scenarioFallback() {
-	t.say("已收到问题。当前为前端演示模式（数据为 mock），我支持的演示场景：\n\n1. 「当前有哪些告警实例」— 告警问数\n2. 「诊断 trade_tenant」— 完整诊断链路（含异步深度扫描）\n3. 「QPS 趋势」— 指标问数\n\n正式版将接入 agent 集群（路由 / 诊断 / 问数专家），通过工具注册表调用真实数据。", 20)
-	t.emit(DoneEvent{Type: "done"})
-}
-
-func pickScenario(text string) func(t *turn) {
-	if reGreeting.MatchString(text) {
-		return (*turn).scenarioGreeting
-	}
-	if reAlert.MatchString(text) && !reDiag.MatchString(text) {
-		return (*turn).scenarioAlerts
-	}
-	if reDiag.MatchString(text) {
-		return (*turn).scenarioDiagnosis
-	}
-	if reDataqa.MatchString(text) {
-		return (*turn).scenarioDataqa
-	}
-	return (*turn).scenarioFallback
-}
-
-// StartTurn：后台执行场景；无论正常/取消/出错，最终落 assistant 消息并发布 done。
+// StartTurn：后台执行一轮；无论正常/取消/出错，最终落 assistant 消息并推进轮次状态机。
 func (r *Runtime) StartTurn(sessionID, turnID, text string) {
 	rt := r.rt(sessionID)
 	rt.mu.Lock()
 	if rt.cancelC != nil {
-		// 上一 turn 仍在跑：先取消（MVP 串行化会话）
+		// 上一 turn 仍在跑：先取消（同会话串行化 = 取消替换，docs §3.3-D2）
 		old := rt.cancelC
+		rt.cancelC = nil
 		rt.mu.Unlock()
 		close(old)
 		time.Sleep(50 * time.Millisecond)
@@ -405,28 +319,36 @@ func (r *Runtime) StartTurn(sessionID, turnID, text string) {
 	rt.cancelC = c
 	rt.mu.Unlock()
 
-	t := &turn{r: r, db: r.db, sessionID: sessionID, turnID: turnID, cancelC: c}
+	ctx, cancel := context.WithCancel(context.Background())
+	t := &turn{r: r, db: r.db, sessionID: sessionID, turnID: turnID, input: text, cancelC: c, ctx: ctx}
+	go func() { <-c; cancel() }() // 取消信号传导为 ctx 取消（upstream 断开 exec 连接）
 
 	go func() {
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.Printf("[agent] scenario panic: %v", rec)
+				log.Printf("[agent] turn %s panic: %v", turnID, rec)
 				t.emit(ErrorEvent{Type: "error", Code: "internal", Message: "执行中断"})
+				t.markFailed("internal", "执行中断")
+			}
+			// 契约兜底：源未产出终态且非用户取消 → unexpected_end（docs §3.3-E5）
+			if !t.done && t.errCode == "" && !t.guard() {
+				t.emit(ErrorEvent{Type: "error", Code: "unexpected_end", Message: "执行源未产出终止事件"})
+				t.markFailed("unexpected_end", "执行源未产出终止事件")
 			}
 			r.finalize(t)
+			cancel()
 			rt.mu.Lock()
 			if rt.cancelC == c {
 				rt.cancelC = nil
 			}
 			rt.mu.Unlock()
 		}()
-		pickScenario(text)(t)
+		r.source.Run(t)
 	}()
 }
 
-// finalize：把本轮累积的文本/思考/卡片固化为 assistant 消息。
+// finalize：把本轮累积的文本/思考/卡片固化为 assistant 消息（含异常截断），并推进 chat_turns 状态机。
 func (r *Runtime) finalize(t *turn) {
-	// 已有 done 事件则消息状态 final；被取消时同样落库（截断的文本）
 	var maxSeq int
 	r.db.Model(&model.ChatMessage{}).Where("session_id = ?", t.sessionID).
 		Select("COALESCE(MAX(seq), 0)").Scan(&maxSeq)
@@ -440,13 +362,51 @@ func (r *Runtime) finalize(t *turn) {
 		cards = []CardEnvelope{}
 	}
 	msg := model.ChatMessage{
-		ID: NewID("msg"), SessionID: t.sessionID, Seq: maxSeq + 1,
+		ID: NewID("msg"), SessionID: t.sessionID, TurnID: t.turnID, Seq: maxSeq + 1,
 		Role: "assistant", Text: t.text.String(),
 		Thoughts: jraw(thoughts), Cards: jraw(cards), Status: "final",
 	}
 	if err := r.db.Create(&msg).Error; err != nil {
 		log.Printf("[agent] persist assistant message: %v", err)
 	}
+
+	status := "done"
+	switch {
+	case t.errCode != "":
+		status = "failed"
+	case t.done:
+		status = "done"
+	case t.guard():
+		status = "cancelled"
+	default:
+		status = "failed"
+	}
+	updates := map[string]interface{}{"status": status, "updated_at": nowMillis()}
+	if len(t.usage) > 0 {
+		updates["usage"] = datatypes.JSON(t.usage)
+	}
+	if t.errCode != "" {
+		updates["error_code"] = t.errCode
+		updates["error_msg"] = t.errMsg
+	}
+	r.db.Model(&model.ChatTurn{}).Where("id = ?", t.turnID).Updates(updates)
 	r.db.Model(&model.ChatSession{}).Where("id = ?", t.sessionID).
 		Update("updated_at", nowMillis())
+}
+
+// RecoverInterruptedTurns：启动恢复——重启后所有 running 轮次不可能仍在执行
+// （exec 连接已随进程消失，agentcluster 断连即取消），统一改判 failed/restart（docs §3.3-F2）。
+func RecoverInterruptedTurns(gdb *gorm.DB) {
+	res := gdb.Model(&model.ChatTurn{}).Where("status = ?", "running").
+		Updates(map[string]interface{}{
+			"status": "failed", "error_code": "restart",
+			"error_msg": "apiserver 重启，轮次中断", "updated_at": nowMillis(),
+		})
+	if res.Error != nil {
+		log.Printf("[agent] 启动恢复 running 轮次失败: %v", res.Error)
+		return
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("[agent] 启动恢复：%d 个 running 轮次改判 failed/restart", res.RowsAffected)
+	}
 }

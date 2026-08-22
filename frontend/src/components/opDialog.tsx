@@ -14,6 +14,9 @@ export interface PromptField {
   initial?: string;
   required?: boolean;
   hint?: string;
+  type?: 'text' | 'select' | 'textarea'; // 默认 text
+  options?: { value: string; label: string }[]; // type=select 时的选项
+  rows?: number; // type=textarea 行数，默认 4
 }
 
 export function PromptDialog({ title, fields, okText, onOk, onClose }: {
@@ -23,7 +26,7 @@ export function PromptDialog({ title, fields, okText, onOk, onClose }: {
   onOk: (values: Record<string, string>) => void;
   onClose: () => void;
 }) {
-  const refs = useRef<Record<string, HTMLInputElement | null>>({});
+  const refs = useRef<Record<string, HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null>>({});
   const submit = () => {
     const values: Record<string, string> = {};
     for (const f of fields) {
@@ -40,12 +43,28 @@ export function PromptDialog({ title, fields, okText, onOk, onClose }: {
       <div className="dap-body">
         {fields.map(f => (
           <label key={f.key}>{f.label}
-            <input
-              ref={el => { refs.current[f.key] = el; }}
-              defaultValue={f.initial || ''}
-              placeholder={f.placeholder || ''}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
-            />
+            {f.type === 'select' ? (
+              <select
+                ref={el => { refs.current[f.key] = el; }}
+                defaultValue={f.initial || f.options?.[0]?.value || ''}
+              >
+                {(f.options || []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            ) : f.type === 'textarea' ? (
+              <textarea
+                ref={el => { refs.current[f.key] = el; }}
+                rows={f.rows || 4}
+                defaultValue={f.initial || ''}
+                placeholder={f.placeholder || ''}
+              />
+            ) : (
+              <input
+                ref={el => { refs.current[f.key] = el; }}
+                defaultValue={f.initial || ''}
+                placeholder={f.placeholder || ''}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+              />
+            )}
             {f.hint && <span className="opd-hint">{f.hint}</span>}
           </label>
         ))}

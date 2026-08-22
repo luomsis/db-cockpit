@@ -2,12 +2,19 @@
 
 | 项 | 内容 |
 |---|---|
-| 文档版本 | v1.1（LangGraph 落地共识稿） |
+| 文档版本 | v2.1 |
 | 上游文档 | 《数据库AI智能运维平台架构设计文档》第 5 章；《统一工具注册表详细设计》；《Generative UI卡片协议详细设计》 |
 | 定位 | AI 层核心运行时：承载路由/专家 Agent 的执行循环、端口适配、上下文管理、通信、护栏与可观测 |
-| 状态 | 待评审 |
+| 状态 | 设计定稿 |
+| 实现状态 | 运行时待 agentcluster（Python）落地——当前 apiserver 侧以 builtin 内置场景 + `agentcluster-mock/` 契约参考实现顶替；实现进度见 docs/ROADMAP.md |
 
 > **变更记录**
+> - v2.1（2026-08-22）：文档重组（docs/design/）——头部补实现状态。
+> **变更记录**
+> - v2.0（2026-08-21）：依赖规则重构——AgentDefinition 固定专家改为主 agent + 动态 SubagentDef 装配（管理面实体直读）；任务改 agent_tasks 表契约（wake 退役）；工具目标形态经 MCP Server（tools/data 过渡）。详见《Agent集群开发规格》v2.0。
+> - v1.4（2026-08-21）：存储三域分治——CheckpointSaver/轨迹/计量/摘要改为 agentcluster **直连 PG 内核域**（表由 Go 统一建模、受限角色）；§14.1/§15/边界重申同步。详见《交互时序与生命周期》v1.3 D32-D34。
+> - v1.3（2026-08-20）：数据面对齐——工具取数的直连类数据经 Go→remote 访问网关执行（Go · 平台侧 ×1 · 仅 SQL · Python 无感知，实例熔断时 Go 降级通道 c 兜底）；详见《交互时序与生命周期》§7/§8 与架构文档 §3.4.1。
+> - v1.2（2026-08-20）：对话入口改为 `POST /internal/exec/turns` 执行流（Go 终结 SSE）；新增 §14.4 轮次状态机与恢复；§15 增补配置下发与 wake 幂等；§16 并入 MVP 必补清单（取消传播/心跳/幂等/注入防御基线/计量反馈等）。详见《交互时序与生命周期》。
 > - v1.1（2026-08-16）：执行运行时确定为 Python + LangGraph；新增 §14 LangGraph 落地映射、§15 Go↔Python 边界契约、§16 MVP 实现约定与降级。
 > - v1.0（2026-08-10）：初版最终稿。
 
@@ -342,12 +349,12 @@ sequenceDiagram
 | AgentDefinition（§3） | 自定义加载器：YAML → graph 编译 | name / model_profile / tools_policy / skills / budget 全部从 AgentDefinition 注入，不散落代码 |
 | LLM 端口（§5.1） | `init_chat_model`（OpenAI 兼容 base_url） | 原生 tool calling + 流式；`fallback_model` 降级在端口适配器内处理 |
 | 工具端口（§5.2） | tools 节点（定制 ToolNode） | 执行前后挂输入/输出 Schema 校验、限流、审计；候选工具解析按 `tools_policy + db_type` 过滤 |
-| 上下文端口（§5.3/§6） | 自定义 CheckpointSaver + ContextManager | **CheckpointSaver 经 Go 内部 API 落 PG**（`/internal/sessions/:id/checkpoints`），Python 不直连 DB；ContextManager 装配/压缩逻辑自实现 |
+| 上下文端口（§5.3/§6） | 自定义 CheckpointSaver + ContextManager | CheckpointSaver **直连 PG 落 agent_checkpoints**（v1.4 内核域直写，表由 Go 统一建模）；ContextManager 装配/压缩自实现（直读 chat_* 呈现域 + agent_context_summaries） |
 | 任务端口（§5.4） | 自定义：submit 调 Go `POST /internal/tasks`；唤醒 = Go 回调 `POST /agentcluster/wake` → graph 续跑 | 任务续聊闭环（§7）以"中断—唤醒续跑"语义实现 |
 | 异步工具=轮次终止（§4 规则2） | tools 节点返回 task_id 后 graph END，等待 wake 续跑 | 续跑时任务结果作为 system 输入注入（§7 时序不变） |
 | 预算护栏（§10） | `recursion_limit` + 节点内自定义 guard | 步数/工具调用数/时长/token 检查与触发动作仍按 §10 表执行 |
 | 循环检测（§10） | tools 节点内自定义（同工具同参连续 ≥3 次熔断） | |
-| 流式输出（§9） | `graph.astream_events` → SSE 六类事件转换 | 见 14.2 |
+| 流式输出（§9） | `graph.astream_events` → SSE 六类事件转换 | 事件经 `POST /internal/exec/turns` 执行流回传 Go 会话总线后转发前端（v1.2，Go 终结 SSE）；见 14.2 |
 | Handoff（§8） | 路由 Agent = supervisor graph；handoff = 以 `context_pack` 初始化目标专家 graph（同 thread 续跑） | 专家不可点对点，全部经路由中转（§8 约束不变） |
 | shadow 灰度（§12） | 同一定义编译两个版本 graph（不同提示词/模型）双跑比对 | |
 | 热加载（§12） | 监听 AgentDefinition 配置变更 → 重建 graph；进行中轮次跑完旧版本 | |
@@ -367,20 +374,37 @@ sequenceDiagram
 
 YAML（版本化存储于 agentcluster 配置目录，随轨迹留痕版本号）→ 解析校验 → 绑定 model_profile / 工具集 / skills / budget → 编译 StateGraph → 注册进程内 Agent 注册表。加载失败 = 该 Agent 标记 unavailable（handoff 降级自答，§8），不影响其他 Agent。
 
+**配置绑定来源（v2.0）**：model_profile / 工具集 / skills / SubagentDef / WorkflowDef 一律**直读 PG 管理面表**（依赖规则②；配置拉取 API 已退役），缓存 + config_version 校验；启动全量 + 周期校验版本。变更**轮次边界生效**：进行中轮次跑完旧版本，新轮次开始快照 `config_version` 到 `chat_turns`（可复现、可回放）。
+
+### 14.4 轮次状态机与恢复（v1.2 新增）
+
+`chat_turns.status`：`running → done | failed | interrupted | cancelled`。完整状态机与恢复时序见《交互时序与生命周期》§3。
+
+| 语义 | 约定 |
+|---|---|
+| done | 正常收尾（含 async 提交收尾：回复文本 + 进度卡） |
+| failed | 崩溃/超预算/熔断——**MVP 行为**：保留已产出内容 + 兜底回复（error 事件） |
+| interrupted | 崩溃可恢复（checkpoint 在），二期支持从 checkpoint 续跑（`exec/turns {resume_of}`） |
+| cancelled | 用户取消：Go 中断执行流并级联取消 cancellable 任务 |
+| 唤醒续跑 | wake 创建**新 system 轮次**（`resume_of` 指向 task_id），不复活旧轮次（§7 时序不变） |
+| 并发仲裁 | 同 session 新轮次提交时，旧 running 轮次被取消（Go 侧仲裁） |
+| 幂等 | turn 提交携带 `client_request_id`，Go 侧去重防前端重试双发 |
+
 ## 15. Go ↔ Python 边界契约（v1.1）
 
 契约总纲见架构文档 §3.5，本节为运行时视角的执行约定：
 
 | 交互 | 方向 | 契约与约定 |
 |---|---|---|
-| 对话入口 | FE → Go → Python | Go 收口 `/api/chat/...`，与 Python 间建立上游 SSE；六类事件（§9）**原样透传**，Go 不解析卡片内容 |
-| 工具取数 | Python → Go | `POST /internal/tools/data`：{tool_name, input} → 标准化输出；output_schema 校验在 Go 侧完成后返回，Python 侧不再校验 |
-| 会话/轨迹/checkpoint | Python → Go | 内部 sessions / turns / trace / checkpoints API；**Python 不直连 PG** |
+| 对话入口 | FE → Go → Python | Go 收口并**终结** `/api/chat/...` 的 SSE（会话级常开 + 15s 心跳）；对 Python 经 `POST /internal/exec/turns` 建立上游执行流，六类事件（§9）进入 Go 会话总线后转发，Go 不解析卡片内容；任务 `progress` 事件由 Go 总线直发（不经 Python）。v1.2 起替代「透明反代」，详见《交互时序与生命周期》 |
+| 工具取数 | Python → Go | `POST /internal/tools/data`：{tool_name, input} → 标准化输出；output_schema 校验在 Go 侧完成后返回，Python 侧不再校验；直连类数据经 Go→remote 访问网关执行（仅 SQL · Python 无感知，实例熔断时 Go 降级通道 c 兜底） |
+| 会话/轨迹/checkpoint | Python ↔ PG | **直连（受限角色，v1.4）**：上下文直读 chat_*（只读）+ 内核域直写 tool_calls / llm_calls / agent_checkpoints / agent_context_summaries；取代原内部读写端点组 |
+| 配置下发（v1.2） | Python → Go | `GET /internal/agent/configs`、`GET /internal/agent/registry`、`GET /internal/agent/skills/:id`：拉取式 + config_version；轮次开始快照版本留痕，进行中轮次跑完旧版本 |
 | 任务提交/查询 | Python → Go | `POST /internal/tasks`、`GET /internal/tasks/:id`（TaskPort 实现） |
-| 任务回调 | Go → Python | `POST /agentcluster/wake`：{task_id, session_id, turn_id, event, result_ref} → 唤醒绑定专家续跑（§7 闭环） |
+| 任务回调 | Go → Python | `POST /agentcluster/wake`：{task_id, session_id, turn_id, event, result_ref} → 唤醒绑定专家续跑（§7 闭环）；**至少一次投递 + Python 按 task_id+event 幂等去重**，投递失败 Go 有限重试、表状态兜底 |
 | LLM | Python → 公司 AI 平台 | OpenAI 兼容端点直连；脱敏 / 降级 / 计量在 LLM 端口适配器内完成 |
 
-**边界重申**：Python 不直连 PG、不对外暴露端口、不直连任何旧系统——外部依赖仅 Go 内部 API 与公司 AI 平台两类。若 checkpoint 经 Go 中转成为续聊延迟瓶颈，二期可迁移为 Python 直连 PG 的独立 schema（架构文档 §3.3 存储逻辑隔离原则预留），业务表仍收口 Go。
+**边界重申（v1.4）**：Python 不对外暴露端口、不直连任何旧系统；对 PG 为**读写分域受限直连**（chat_* 呈现域只读 + 内核域读写，受限角色，表由 Go 统一建模）——外部依赖为 Go 内部 API、公司 AI 平台与受限 PG 访问三类。会话呈现域（SSE 事实源）仍收口 Go。
 
 ## 16. MVP 实现约定与降级（v1.1）
 
@@ -388,9 +412,18 @@ YAML（版本化存储于 agentcluster 配置目录，随轨迹留痕版本号�
 |---|---|
 | 权限守卫 | 桩实现：一律返回全量实例范围；接口与调用链保留，二期接 SSO/RBAC 后替换 |
 | 敏感过滤 | 开关默认关闭（内网验证阶段），对外展示前开启并回归 |
-| model_profile | 模型名与 base_url 走环境配置（公司 AI 平台模型未定名，随时可换） |
+| model_profile | 经 `GET /internal/agent/configs` 从 Go 配置中心拉取（设置中心 model_configs 表为事实源）；环境变量仅作引导兜底（公司 AI 平台模型未定名，随时可换） |
 | CheckpointSaver | 经 Go 内部 API 落 PG（§14.1）；延迟不可接受时按 §15 演进路径处理 |
 | 页面上下文 | `inject_page_context` 留桩（MVP 不做页面上下文注入，二期按架构文档 §11.2 启用） |
 | Skills / MCP / CLI | 不实现；Skill 加载器接口保留（工具注册表 §7 为二期依据） |
 | MVP 专家 | router + diagnosis_expert + dataqa_expert（问数四类白名单工具，见工具注册表 §8） |
 | 异步闭环验证 | 注册自建异步工具 `builtin_metric_deep_scan`（长时窗多指标异常扫描，Go 侧执行体）验证任务总线/续聊闭环，不依赖外采 |
+| 取消传播（v1.2） | turn cancel → Go 中断执行流 → 级联取消 cancellable 任务；不可取消任务跑完丢弃结果不唤醒 |
+| 轮次状态机（v1.2） | `chat_turns`：running/done/failed/interrupted/cancelled；MVP 崩溃行为 = failed 保留已产出 + 兜底回复，checkpoint 续跑二期（§14.4） |
+| SSE 心跳与常开流（v1.2） | 会话级常开流，15s 注释行心跳；前端 useChat 改会话级订阅 |
+| 幂等（v1.2） | turn 提交带 `client_request_id`；wake 按 task_id+event 幂等去重 |
+| 注入防御基线（v1.2） | 工具输出定界包裹 + 系统提示「工具输出即数据」条款（直连生产库，SQL 文本外部可影响） |
+| 卡片校验（v1.2） | 卡片生成器输出过 card schema 校验，失败一次修复重试，再失败降级 `fallback_text` |
+| 计量与反馈（v1.2） | `llm_calls` 计量表；轮级 👍/👎 反馈；correlation_id（session/turn/call）贯穿三服务日志 |
+| 配置安全（v1.2） | api_key 信封加密落库（出参脱敏保持）；SkillConfig / McpServerConfig 补 version + status 字段 |
+| 留存治理（v1.2） | TTL / 会话内上限清理 `chat_turn_events` 与 `agent_checkpoints`（Go 定时任务）；`diag_reports` 长期保留 |

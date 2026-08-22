@@ -68,7 +68,8 @@ body::before {
 .logo-text span { font-size: 11px; color: var(--text-3); margin-top: 1px; display: block; }
 
 .nav { flex: 1; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
-.nav-group { font-size: 11px; color: var(--text-3); padding: 14px 10px 6px; letter-spacing: 1px; }
+.nav-group { font-size: 11.5px; font-weight: 600; color: var(--text-3); padding: 20px 10px 6px; letter-spacing: 1.5px; }
+.nav-group:first-child { padding-top: 6px; }
 .nav a {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 12px; border-radius: 8px;
@@ -97,17 +98,36 @@ body::before {
 .env-name { font-size: 12.5px; font-weight: 600; color: var(--text); }
 .env-sub { font-size: 11px; color: var(--text-3); margin-top: 2px; }
 
-/* 左下角：compose 各服务 git 版本与构建时间 */
-.svc-versions {
-  margin-top: 8px; padding-top: 8px; border-top: 1px dashed #dbe6fb;
-  display: flex; flex-direction: column; gap: 3px;
+/* 左下角：关于悬停浮窗 */
+.sf-actions { display: flex; gap: 8px; margin-top: 10px; }
+.sf-about { position: relative; flex: 1; display: flex; }
+.sf-icon-btn {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+  height: 30px; border: 1px solid var(--border); border-radius: 8px;
+  background: #fff; color: var(--text-2); font-size: 12px; cursor: pointer;
+  transition: all 0.15s;
 }
-.svc-version {
-  display: flex; gap: 6px; align-items: baseline;
+.sf-icon-btn:hover, .sf-icon-btn.open {
+  color: var(--blue); border-color: var(--blue); background: var(--blue-bg);
+}
+.about-pop {
+  display: none; position: absolute; bottom: calc(100% + 8px); left: 0; width: 236px;
+  background: #fff; border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 32, 67, 0.14); padding: 12px 14px; z-index: 70;
+  cursor: default;
+}
+.sf-about:hover .about-pop, .sf-about:focus-within .about-pop { display: block; animation: fadeUp 0.18s ease; }
+.about-pop-title { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.about-pop-ver { font-size: 11px; color: var(--text-3); margin: 2px 0 8px; }
+.about-pop-svc {
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
   font-size: 10.5px; font-family: Menlo, Consolas, monospace; color: var(--text-3);
+  padding-top: 6px; border-top: 1px dashed var(--border);
 }
-.svc-name { color: var(--text-2); }
-.svc-sha { color: var(--blue); }
+.about-pop-svc + .about-pop-svc { margin-top: 6px; }
+.about-pop-name { color: var(--text-2); }
+.about-pop-svc code { color: var(--blue); }
+.about-pop-svc em { font-style: normal; color: var(--text-3); }
 
 /* ---------------- 主区域 ---------------- */
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -417,18 +437,7 @@ body::before {
 .chat-drawer-body { flex: 1; overflow-y: auto; padding: 16px 14px 16px 40px; background: #f7f9fd; }
 .chat-drawer-body .cmsg, .chat-drawer-body .chatp-welcome { max-width: 100%; }
 .chat-drawer-body .card { box-shadow: none; }
-.chat-drawer-input { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--border); background: #fff; }
-.chat-drawer-input input {
-  flex: 1; padding: 9px 12px; border-radius: 9px; border: 1px solid var(--border-strong);
-  font-size: 13px; outline: none; background: #fff; color: var(--text);
-}
-.chat-drawer-input input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(0, 106, 255, 0.1); }
-.chat-drawer-send {
-  padding: 0 18px; border-radius: 9px; border: none; cursor: pointer;
-  background: var(--grad); color: #fff; font-size: 13px; font-weight: 600;
-  box-shadow: 0 2px 8px rgba(0, 106, 255, 0.25); transition: opacity 0.15s;
-}
-.chat-drawer-send:disabled { opacity: 0.45; cursor: not-allowed; }
+.chat-drawer-input { flex-shrink: 0; padding: 12px 14px; border-top: 1px solid var(--border); background: #fff; }
 
 .chat-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; background: #fafbfe; }
 .msg { max-width: 86%; display: flex; gap: 8px; animation: fadeUp 0.25s ease; }
@@ -864,21 +873,39 @@ body::before {
 .chat-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px rgba(0, 179, 101, 0.6); }
 .chatp-body { flex: 1; overflow-y: auto; padding: 20px 22px 20px 44px; display: flex; flex-direction: column; gap: 16px; background: #fafbfe; }
 .chatp-input { flex-shrink: 0; border-top: 1px solid var(--border); background: #fff; padding: 12px 16px 14px; }
-.chatp-input-row { display: flex; gap: 8px; }
-.chatp-input input {
-  flex: 1; padding: 11px 16px; border-radius: 9px; outline: none; font-size: 13px;
-  background: #f5f7fb; border: 1px solid var(--border); color: var(--text);
-  transition: all 0.18s;
+
+/* ============ ZCode 风格聊天输入框（主聊天页 + 抽屉共用） ============
+ * 圆角卡片 = 多行自动增高输入区 + 底部工具栏（左模型选择 / 右发送） */
+.chat-composer {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 12px; border-radius: 16px; background: #fff;
+  border: 1px solid var(--border-strong);
+  transition: border-color 0.15s, background 0.15s;
 }
-.chatp-input input:focus { border-color: var(--blue); background: #fff; box-shadow: 0 0 0 3px rgba(0, 106, 255, 0.08); }
-.chatp-input input:disabled { opacity: 0.6; }
-.chatp-input button {
-  padding: 11px 22px; border: none; border-radius: 9px; background: var(--grad);
-  color: #fff; font-weight: 600; font-size: 13px; cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 106, 255, 0.25); transition: all 0.15s;
+.chat-composer:hover { border-color: #a9bcd9; }
+.chat-composer:focus-within { border-color: var(--blue); background: #f7faff; }
+.chat-composer textarea {
+  width: 100%; min-height: 22px; max-height: 160px; overflow-y: auto;
+  padding: 0; border: none; outline: none; background: transparent; resize: none;
+  font-family: inherit; font-size: 14px; line-height: 1.55; color: var(--text);
 }
-.chatp-input button:hover:not(:disabled) { box-shadow: 0 4px 14px rgba(0, 106, 255, 0.35); transform: translateY(-1px); }
-.chatp-input button:disabled { opacity: 0.5; cursor: not-allowed; }
+.chat-composer textarea::placeholder { color: rgba(29, 43, 69, 0.4); }
+.chat-composer-bar { display: flex; align-items: center; gap: 8px; }
+.chat-composer-left { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.chat-composer-send {
+  flex: none; width: 30px; height: 30px; display: grid; place-items: center;
+  border: none; border-radius: 8px; background: var(--blue); color: #fff;
+  cursor: pointer; transition: background 0.15s, opacity 0.15s;
+}
+.chat-composer-send:hover:not(:disabled) { background: #005ad6; }
+.chat-composer-send:disabled { opacity: 0.35; cursor: not-allowed; }
+.chat-composer-stop {
+  flex: none; width: 30px; height: 30px; display: grid; place-items: center;
+  border: 1px solid #b9d3ff; border-radius: 8px; background: #f0f6ff; color: var(--blue);
+  cursor: pointer; transition: background 0.15s;
+}
+.chat-composer-stop:hover { background: #e3eeff; }
+
 .chatp-quick-inline { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .chatp-quick-inline:empty { display: none; }
 .chatp-quick-inline button {
@@ -886,6 +913,42 @@ body::before {
   background: #fff; color: var(--blue); border: 1px solid #c4dcff; transition: all 0.15s;
 }
 .chatp-quick-inline button:hover { background: var(--blue-bg); }
+
+/* 输入框底部工具栏左侧 LLM 模型选择胶囊（聊天页 + 抽屉共用，ZCode 幽灵风格） */
+.chat-model-wrap { position: relative; flex: none; display: flex; }
+.chat-model-chip {
+  display: flex; align-items: center; gap: 5px; padding: 4px 8px;
+  border-radius: 7px; background: transparent; color: var(--text-2);
+  font-size: 12px; cursor: pointer; user-select: none; transition: all 0.15s;
+}
+.chat-model-chip:hover, .chat-model-chip.open { background: var(--blue-bg); color: var(--text); }
+.chat-model-chip-name { max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-model-chip svg { flex: none; opacity: 0.7; }
+
+.chat-model-pop {
+  position: absolute; left: 0; bottom: calc(100% + 8px); width: 280px;
+  max-height: 280px; overflow-y: auto; padding: 6px; background: #fff;
+  border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(29, 43, 69, 0.16); z-index: 30;
+}
+.chat-model-item {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px;
+  padding: 8px 10px; border-radius: 7px; cursor: pointer;
+}
+.chat-model-item:hover { background: #f2f7ff; }
+.chat-model-item.active { background: var(--blue-bg); }
+.chat-model-item-main {
+  flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chat-model-item-sub { width: 100%; font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-model-item svg { margin-left: auto; flex: none; color: var(--blue); }
+
+.chat-model-empty { padding: 14px 12px; font-size: 12.5px; color: var(--text-2); line-height: 1.7; }
+.chat-model-empty a { color: var(--blue); font-weight: 600; text-decoration: none; }
+.chat-model-empty a:hover { text-decoration: underline; }
+
+.chat-model-chip:focus-visible, .chat-model-item:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 
 /* 欢迎态 */
 .chatp-welcome { margin: auto; text-align: center; max-width: 480px; padding: 30px 0; }
@@ -902,7 +965,6 @@ body::before {
   background: #fff; color: var(--blue); border: 1px solid #c4dcff; transition: all 0.15s;
 }
 .chatp-quick button:hover { background: var(--blue-bg); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0, 106, 255, 0.12); }
-.chatp-stop-row { display: flex; justify-content: center; }
 
 /* 消息 */
 .cmsg { display: flex; gap: 10px; animation: fadeUp 0.25s ease; max-width: 92%; }
@@ -1253,14 +1315,54 @@ body::before {
 }
 .sql-view-meta { font-size: 12px; color: var(--text-3); margin-top: 10px; }
 
+/* ================= 设置中心 / 插件中心：配置列表 ================= */
+.cfg-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.cfg-count { font-size: 12.5px; color: var(--text-3); }
+.cfg-error {
+  padding: 8px 12px; border-radius: 8px; background: var(--red-bg); color: var(--red);
+  font-size: 12.5px; margin-bottom: 12px;
+}
+.cfg-list { display: flex; flex-direction: column; gap: 10px; }
+.cfg-item {
+  display: flex; align-items: center; gap: 14px;
+  background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.cfg-item:hover { border-color: #c9d9f6; box-shadow: 0 2px 10px rgba(15, 32, 67, 0.06); }
+.cfg-main { flex: 1; min-width: 0; }
+.cfg-title { display: flex; align-items: center; gap: 8px; }
+.cfg-title b { font-size: 13.5px; color: var(--text); }
+.cfg-desc { font-size: 12.5px; color: var(--text-2); margin-top: 4px; }
+.cfg-meta {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  font-size: 11.5px; color: var(--text-3); margin-top: 6px;
+}
+.cfg-item .muted { color: var(--text-3); }
+.cfg-model { font-weight: 600; color: var(--text-2); }
+.cfg-url {
+  font-family: Menlo, Consolas, monospace; font-size: 11px; color: var(--blue);
+  max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cfg-ops { display: flex; gap: 6px; flex-shrink: 0; }
+.cfg-empty {
+  padding: 28px; text-align: center; color: var(--text-3); font-size: 12.5px;
+  background: #fff; border: 1px dashed var(--border); border-radius: 10px;
+}
+
 /* ================= 窄屏适配 ================= */
 @media (max-width: 1100px) {
   .sidebar { width: 64px; }
   .logo { padding: 18px 13px 14px; justify-content: center; }
-  .logo-text, .sidebar-foot { display: none; }
+  .logo-text { display: none; }
+  .sidebar-foot { margin: 8px 6px; padding: 8px 6px; }
+  .sf-env { display: none; }
+  .sf-actions { flex-direction: column; margin-top: 0; }
+  .sf-btn-label { display: none; }
   .nav { padding: 8px 8px; }
   .nav a { justify-content: center; padding: 10px 0; gap: 0; }
   .nav-label { display: none; }
+  .nav-group { height: 1px; padding: 0; margin: 10px 6px; background: var(--border); font-size: 0; letter-spacing: 0; overflow: hidden; }
+  .nav-group:first-child { display: none; }
 }
 @media (max-width: 900px) {
   .topbar .search { display: none; }

@@ -72,12 +72,14 @@ curl http://localhost:8090/healthz               # 本地直连 apiserver
 docker compose logs -f apiserver
 ```
 
-接口契约金样见仓库根 `contracts/api/`；apiserver 细节见 `apiserver/README.md`。
+接口契约金样见仓库根 `contracts/api/`；apiserver 细节见 `apiserver/README.md`；建表基准见 `deploy/db/`（001 元数据域、002 数据面白名单——运行时以 apiserver GORM AutoMigrate 为准）。
 
-## 五、后续演进（agentcluster）
+## 五、后续演进（agentcluster / collector / remote）
 
-Python agentcluster（LangGraph 专家集群）就绪后：
+其余三个后端组件就绪后（目标形态：**五容器 + 复用宿主机 PG**，组件清单见架构文档 §3.4.1）：
 
-1. 在 `docker-compose.yml` 追加 agentcluster 服务；
-2. apiserver 设置 `AGENT_MODE=upstream` + `AGENT_UPSTREAM_URL`，`/api/chat/*` 自动整组透明代理到 Python SSE（docs 架构文档 §3.5 边界契约，前端零改动）；
-3. `/internal/*`（工具执行 / 会话 / 任务）从 501 stub 换成真实实现。
+1. **agentcluster（Python · LangGraph）**：追加服务后 apiserver 切 `AGENT_MODE=upstream`——v1.3 起为**事件源切换**：Go 经 `POST /internal/exec/turns` 消费 Python 执行流并在 Go 终结 SSE（不再整组反代，前端零改动）；`/internal/*` 从 501 stub 换成真实实现；
+2. **collector（既有独立程序 · 数据面）**：追加服务，定时拉取 DBaaS/告警/日志并直写 PG 白名单表（六类；**表结构已定稿**——元数据 4 表 + 告警/变更/慢日志/水位，基准 SQL 见 `deploy/db/`，详见架构文档 §6.1.1/§6.1.2；事件类待定，lock 不建表）；apiserver 定时消费告警原始表做 Issue 化；
+3. **remote（Go · 数据面 ×1）**：追加服务，承接 Probe「实例直连」通道——仅 SQL、按需建连即用即毁、SQL 白名单双保险（账号 + 语句解析）、执行审计直写 PG、实例熔断。
+
+时序与契约详见 docs《交互时序与生命周期》§6-§8。

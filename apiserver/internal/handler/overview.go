@@ -8,7 +8,9 @@ import (
 	"db-cockpit/apiserver/internal/version"
 )
 
-// GetOverview：概览页五卡片聚合
+// GetOverview：概览页五卡片聚合。
+// dbTypes 优先元数据域活计数（db_cluster/db_instance），空表回退 meta_stats 静态值；
+// 告警/慢SQL 走数据面白名单聚合（whitelist.go），空表回退 UI 演示表。
 func (h *H) GetOverview(c *gin.Context) {
 	load := func(key string) interface{} {
 		var row model.MetaStat
@@ -17,26 +19,20 @@ func (h *H) GetOverview(c *gin.Context) {
 		}
 		return row.Value
 	}
-	var slowSqls []model.SlowSql
-	h.DB.Where("instance_id = ''").Order("id asc").Find(&slowSqls)
-	var alerts []model.AlertRecord
-	h.DB.Order("id asc").Find(&alerts)
-
+	var dbTypes interface{}
+	if live := h.dbTypes(); live != nil {
+		dbTypes = live
+	} else {
+		dbTypes = load("db_types")
+	}
 	envelope.OK(c, gin.H{
-		"dbTypes":    load("db_types"),
+		"dbTypes":    dbTypes,
 		"topAnomaly": load("top_anomaly"),
 		"sqlIssues":  load("sql_issues"),
 		"lock":       load("lock_summary"),
-		"slowSqls":   slowSqls,
-		"alerts":     alerts,
+		"slowSqls":   h.slowItems(nil),
+		"alerts":     h.alertItems(),
 	})
-}
-
-// GetAlerts：顶栏铃铛 / 告警列表
-func (h *H) GetAlerts(c *gin.Context) {
-	var alerts []model.AlertRecord
-	h.DB.Order("id asc").Find(&alerts)
-	envelope.OK(c, gin.H{"items": alerts, "total": len(alerts)})
 }
 
 // GetVersion：apiserver 构建信息（git 短哈希 + 构建时间，供前端左下角展示）

@@ -221,14 +221,15 @@ type Dashboard struct {
 	Description string         `gorm:"size:256" json:"description"`
 	Cfg         datatypes.JSON `json:"cfg"`
 	Panels      datatypes.JSON `json:"panels"`
-	CreatedAt   int64          `json:"createdAt"`
-	UpdatedAt   int64          `json:"updatedAt"`
+	CreatedAt   int64          `gorm:"autoCreateTime:false" json:"createdAt"`
+	UpdatedAt   int64          `gorm:"autoUpdateTime:false" json:"updatedAt"`
 }
 
-/* ================= Chat ================= */
+/* ================= Chat 会话呈现域（Go 独占读写；agentcluster 只读） ================= */
 
 type ChatSession struct {
 	ID        string `gorm:"primaryKey;size:64" json:"id"`
+	UserID    string `gorm:"column:user_id;size:64;index" json:"userId"` // MVP 无鉴权统一 anonymous，二期接 SSO 落真实账号
 	Title     string `gorm:"size:128" json:"title"`
 	CreatedAt int64  `json:"createdAt"`
 	UpdatedAt int64  `json:"updatedAt"`
@@ -237,6 +238,7 @@ type ChatSession struct {
 type ChatMessage struct {
 	ID        string         `gorm:"primaryKey;size:64" json:"id"`
 	SessionID string         `gorm:"size:64;index" json:"-"`
+	TurnID    string         `gorm:"column:turn_id;size:64;index" json:"turnId,omitempty"` // 空 = 历史导入消息
 	Seq       int            `gorm:"index" json:"-"`
 	Role      string         `gorm:"size:16" json:"role"`
 	Text      string         `json:"text"`
@@ -245,11 +247,211 @@ type ChatMessage struct {
 	Status    string         `gorm:"size:16" json:"status"`
 }
 
+// ChatTurn：轮次状态机 + 提交幂等 + 配置版本留痕（docs《交互时序与生命周期》§3.2/§5.1）。
+// status: running | done | failed | cancelled | interrupted(二期续跑)。
+type ChatTurn struct {
+	ID              string         `gorm:"primaryKey;size:64" json:"id"`
+	SessionID       string         `gorm:"size:64;index" json:"-"`
+	Seq             int            `gorm:"index" json:"-"`
+	Kind            string         `gorm:"size:16" json:"kind"` // user | system_resume
+	ResumeOf        string         `gorm:"column:resume_of;size:64;index" json:"resumeOf,omitempty"` // system_resume 轮指向的任务 ID
+	Status          string         `gorm:"size:16;index" json:"status"`
+	ClientRequestID *string        `gorm:"column:client_request_id;size:64;uniqueIndex" json:"-"` // 可空：无幂等键(NULL)不参与去重，PG 唯一索引允许多个 NULL
+	ConfigVersion   string         `gorm:"column:config_version;size:32" json:"configVersion"`
+	UserMsg         string         `gorm:"column:user_msg" json:"userMsg"`
+	Usage           datatypes.JSON `json:"usage"`
+	ErrorCode       string         `gorm:"column:error_code;size:32" json:"errorCode,omitempty"`
+	ErrorMsg        string         `gorm:"column:error_msg;size:512" json:"errorMsg,omitempty"`
+	CreatedAt       int64          `json:"createdAt"`
+	UpdatedAt       int64          `json:"updatedAt"`
+}
+
 type ChatTurnEvent struct {
-	Seq       int64          `gorm:"primaryKey" json:"seq"` // 会话内单调递增
-	SessionID string         `gorm:"size:64;index" json:"-"`
+	SessionID string         `gorm:"primaryKey;size:64" json:"-"` // 复合主键 (session_id, seq)：seq 仅会话内单调
+	Seq       int64          `gorm:"primaryKey" json:"seq"`
 	TurnID    string         `gorm:"size:64" json:"turnId"`
 	Event     datatypes.JSON `json:"event"`
+}
+
+/* ================= 执行内核域（Go 统一建模建表；agentcluster 直连读写，Go 只读供前端轨迹视图） =================
+ * 域权限（目标形态独立 PG 角色，MVP 同用户起步）：
+ *   agentcluster → chat_* 四表 SELECT；本域四表 SELECT/INSERT/UPDATE；其余表（model_configs 等）不可见。
+ */
+
+// ToolCall：工具调用轨迹（agentcluster 执行中直写；工具注册表 §3 调用信封落点）。
+type ToolCall struct {
+	ID          string         `gorm:"primaryKey;size:64" json:"id"` // tc_
+	TurnID      string         `gorm:"size:64;index" json:"turnId"`
+	SessionID   string         `gorm:"size:64;index" json:"sessionId"`
+	CallID      string         `gorm:"column:call_id;size:64;uniqueIndex" json:"callId"` // 幂等防重
+	ToolName    string         `gorm:"column:tool_name;size:128" json:"toolName"`
+	ToolVersion string         `gorm:"column:tool_version;size:32" json:"toolVersion"`
+	Provider    string         `gorm:"size:32" json:"provider"` // builtin | vendor_agent | mcp | cli
+	CallerAgent string         `gorm:"column:caller_agent;size:64" json:"callerAgent"`
+	InputJSON   datatypes.JSON `gorm:"column:input_json" json:"input"`
+	OutputJSON  datatypes.JSON `gorm:"column:output_json" json:"output"` // 大结果存引用
+	RiskLevel   string         `gorm:"column:risk_level;size:8" json:"riskLevel"`
+	Status      string         `gorm:"size:16" json:"status"` // success | failed | timeout
+	DurationMs  int64          `gorm:"column:duration_ms" json:"durationMs"`
+	Error       string         `gorm:"size:512" json:"error"`
+	CreatedAt   int64          `json:"createdAt"`
+}
+
+// LlmCall：LLM 调用计量（agentcluster 直写；预算治理数据源）。
+type LlmCall struct {
+	ID               string `gorm:"primaryKey;size:64" json:"id"`
+	TurnID           string `gorm:"size:64;index" json:"turnId"`
+	SessionID        string `gorm:"size:64;index" json:"sessionId"`
+	Model            string `gorm:"size:128" json:"model"`
+	PromptTokens     int    `json:"promptTokens"`
+	CompletionTokens int    `json:"completionTokens"`
+	TotalTokens      int    `json:"totalTokens"`
+	LatencyMs        int64  `gorm:"column:latency_ms" json:"latencyMs"`
+	Status           string `gorm:"size:16" json:"status"`
+	CreatedAt        int64  `json:"createdAt"`
+}
+
+// AgentCheckpoint：LangGraph checkpoint 持久化（agentcluster 直写；session_id 即 thread_id）。
+type AgentCheckpoint struct {
+	ID                 string         `gorm:"primaryKey;size:64" json:"id"`
+	SessionID          string         `gorm:"size:64;uniqueIndex:idx_ckpt_session_cid,priority:1" json:"sessionId"`
+	CheckpointID       string         `gorm:"column:checkpoint_id;size:64;uniqueIndex:idx_ckpt_session_cid,priority:2" json:"checkpointId"`
+	ParentCheckpointID string         `gorm:"column:parent_checkpoint_id;size:64" json:"parentCheckpointId"`
+	TurnID             string         `gorm:"column:turn_id;size:64;index" json:"turnId"`
+	State              datatypes.JSON `json:"state"`
+	CreatedAt          int64          `json:"createdAt"`
+}
+
+// AgentContextSummary：滚动摘要（agentcluster 轮末直写；装配上下文时按 session 取 up_to_turn_seq 最大一条）。
+type AgentContextSummary struct {
+	ID          string `gorm:"primaryKey;size:64" json:"id"`
+	SessionID   string `gorm:"size:64;index" json:"sessionId"`
+	UpToTurnSeq int    `gorm:"column:up_to_turn_seq;index" json:"upToTurnSeq"`
+	Summary     string `json:"summary"`
+	Model       string `gorm:"size:128" json:"model"`
+	CreatedAt   int64  `json:"createdAt"`
+}
+
+/* ================= 管理面（Go 写·agent 只读：动态 subagent 与 workflow 定义） ================= */
+
+// SubagentDef：动态 subagent 定义——sys_prompt + 工具集绑定 + workflow 引用 + 预算。
+// 主 agent 运行时按 subagent_id+version 装配实例（docs《Agent集群开发规格》§4）。
+type SubagentDef struct {
+	ID           string         `gorm:"primaryKey;size:64" json:"id"` // sa_
+	SubagentID   string         `gorm:"column:subagent_id;size:64;uniqueIndex:idx_sa_id_ver,priority:1" json:"subagentId"`
+	Version      int            `gorm:"uniqueIndex:idx_sa_id_ver,priority:2" json:"version"`
+	Status       string         `gorm:"size:16;index" json:"status"` // active | shadow | deprecated
+	SysPrompt    string         `gorm:"column:sys_prompt" json:"sysPrompt"`
+	Toolset      datatypes.JSON `json:"toolset"`                       // ["metrics-mcp.*", "instance-mcp.sessions", ...]
+	WorkflowRef  string         `gorm:"column:workflow_ref;size:64" json:"workflowRef"` // 指向 workflow_defs.workflow_id（可空）
+	ModelProfile datatypes.JSON `gorm:"column:model_profile" json:"modelProfile"`
+	Budget       datatypes.JSON `json:"budget"`       // 步数/token/时长预算
+	OutputCards  datatypes.JSON `json:"outputCards"`  // 输出卡片类型白名单
+	RoutingHints datatypes.JSON `json:"routingHints"` // 主 agent 路由提示关键词
+	Remark       string         `gorm:"size:256" json:"remark"`
+	CreatedAt    int64          `json:"createdAt"`
+	UpdatedAt    int64          `json:"updatedAt"`
+}
+
+// WorkflowDef：定制化工作流定义。L1_prompt=步骤清单渲染进 sys-prompt（MVP）；
+// L2_graph=图 DSL 编译为 LangGraph 强约束执行图（二期）。
+type WorkflowDef struct {
+	ID         string         `gorm:"primaryKey;size:64" json:"id"` // wf_
+	WorkflowID string         `gorm:"column:workflow_id;size:64;uniqueIndex:idx_wf_id_ver,priority:1" json:"workflowId"`
+	Version    int            `gorm:"uniqueIndex:idx_wf_id_ver,priority:2" json:"version"`
+	Name       string         `gorm:"size:128" json:"name"`
+	Level      string         `gorm:"size:16" json:"level"` // L1_prompt | L2_graph
+	Status     string         `gorm:"size:16" json:"status"` // active | deprecated
+	Definition datatypes.JSON `json:"definition"`
+	Remark     string         `gorm:"size:256" json:"remark"`
+	CreatedAt  int64          `json:"createdAt"`
+	UpdatedAt  int64          `json:"updatedAt"`
+}
+
+/* ================= 任务域（表契约：agent 写入/执行/推进度；Go 只读 + 限列写 notified/cancel_requested） ================= */
+
+// AgentTask：异步任务表契约（依赖规则②）。agent 专家 INSERT 提交、worker 认领执行（claimed_by/lease_until）；
+// apiserver 轮询本表：running 进度变化 → progress 事件直发会话总线；done 未消费 → 创建 system_resume 轮续跑。
+// Go 限列写：cancel_requested（取消级联）、notified（终态消费标记）。
+type AgentTask struct {
+	ID              string         `gorm:"primaryKey;size:64" json:"id"` // atask_
+	SessionID       string         `gorm:"size:64;index" json:"sessionId"`
+	TurnID          string         `gorm:"size:64;index" json:"turnId"`
+	SubagentID      string         `gorm:"column:subagent_id;size:64" json:"subagentId"`
+	CallID          string         `gorm:"column:call_id;size:64;uniqueIndex" json:"callId"` // 幂等防重
+	ToolName        string         `gorm:"column:tool_name;size:128" json:"toolName"`
+	InputJSON       datatypes.JSON `gorm:"column:input_json" json:"input"`
+	ResultRef       string         `gorm:"column:result_ref;size:512" json:"resultRef"` // 大结果引用（agent 侧解析）
+	Status          string         `gorm:"size:16;index" json:"status"`                  // pending | running | done | failed | cancelled
+	Progress        float64        `json:"progress"`
+	Stage           string         `gorm:"size:256" json:"stage"`
+	Error           string         `gorm:"size:512" json:"error"`
+	CancelRequested bool           `gorm:"column:cancel_requested" json:"cancelRequested"` // Go 限列写
+	Notified        bool           `gorm:"notified" json:"-"`                              // Go 限列写：终态已被轮询消费
+	ClaimedBy       string         `gorm:"column:claimed_by;size:64" json:"-"`             // agent worker 认领标识
+	LeaseUntil      int64          `gorm:"column:lease_until" json:"-"`                     // 认领租约（心跳续期）
+	CreatedAt       int64          `json:"createdAt"`
+	UpdatedAt       int64          `json:"updatedAt"`
+}
+
+/* ================= 模型与插件配置（设置中心 / 插件中心） ================= */
+
+// ModelConfig：大模型（LLM）连接配置。APIKey 不出参，查询时由 handler 填充 APIKeyMask 脱敏展示。
+type ModelConfig struct {
+	ID          string         `gorm:"primaryKey;size:64" json:"id"`
+	Name        string         `gorm:"size:128" json:"name"`
+	Provider    string         `gorm:"size:64" json:"provider"` // openai 兼容 / anthropic / qwen ...
+	BaseURL     string         `gorm:"column:base_url;size:256" json:"baseUrl"`
+	APIKey      string         `gorm:"column:api_key;size:512" json:"-"`
+	APIKeyMask  string         `gorm:"-" json:"apiKeyMask"`
+	Model       string         `gorm:"size:128" json:"model"`
+	Params      datatypes.JSON `json:"params"` // 温度 / max_tokens 等自由 JSON
+	Remark      string         `gorm:"size:256" json:"remark"`
+	Enabled     bool           `json:"enabled"`
+	CreatedAt   int64          `gorm:"autoCreateTime:false" json:"createdAt"`
+	UpdatedAt   int64          `gorm:"autoUpdateTime:false" json:"updatedAt"`
+}
+
+// EmbeddingConfig：嵌入模型服务配置，APIKey 处理同 ModelConfig。
+type EmbeddingConfig struct {
+	ID          string         `gorm:"primaryKey;size:64" json:"id"`
+	Name        string         `gorm:"size:128" json:"name"`
+	BaseURL     string         `gorm:"column:base_url;size:256" json:"baseUrl"`
+	APIKey      string         `gorm:"column:api_key;size:512" json:"-"`
+	APIKeyMask  string         `gorm:"-" json:"apiKeyMask"`
+	Model       string         `gorm:"size:128" json:"model"`
+	Dimension   int            `json:"dimension"` // 0 = 未指定
+	Params      datatypes.JSON `json:"params"`
+	Remark      string         `gorm:"size:256" json:"remark"`
+	Enabled     bool           `json:"enabled"`
+	CreatedAt   int64          `gorm:"autoCreateTime:false" json:"createdAt"`
+	UpdatedAt   int64          `gorm:"autoUpdateTime:false" json:"updatedAt"`
+}
+
+// McpServerConfig：MCP 服务插件。Transport 为 stdio 时 Command 是启动命令，Args 是参数；
+// 为 http 时 Command 是服务地址，Headers 存请求头。
+type McpServerConfig struct {
+	ID        string         `gorm:"primaryKey;size:64" json:"id"`
+	Name      string         `gorm:"size:128" json:"name"`
+	Transport string         `gorm:"size:16" json:"transport"` // stdio | http
+	Command   string         `gorm:"size:512" json:"command"`
+	Args      datatypes.JSON `json:"args"`    // stdio 启动参数数组 / http 附加参数
+	Env       datatypes.JSON `json:"env"`     // stdio 环境变量 / http 自定义请求头
+	Remark    string         `gorm:"size:256" json:"remark"`
+	Enabled   bool           `json:"enabled"`
+	CreatedAt int64          `gorm:"autoCreateTime:false" json:"createdAt"`
+	UpdatedAt int64          `gorm:"autoUpdateTime:false" json:"updatedAt"`
+}
+
+// SkillConfig：Skill 插件（SKILL.md 知识/流程提示词）。
+type SkillConfig struct {
+	ID          string `gorm:"primaryKey;size:64" json:"id"`
+	Name        string `gorm:"size:128" json:"name"`
+	Description string `gorm:"size:512" json:"description"`
+	Content     string `json:"content"` // SKILL.md 正文
+	Enabled     bool   `json:"enabled"`
+	CreatedAt   int64  `gorm:"autoCreateTime:false" json:"createdAt"`
+	UpdatedAt   int64  `gorm:"autoUpdateTime:false" json:"updatedAt"`
 }
 
 /* ================= 审计 ================= */
@@ -267,9 +469,14 @@ type AuditLog struct {
 func AllModels() []interface{} {
 	return []interface{}{
 		&Cluster{}, &Instance{}, &ClusterParam{}, &ParamHistory{},
+		&DbCluster{}, &DbInstance{}, &DbInstanceNode{}, &DbSyncWatermark{},
+		&AlertRaw{}, &ChangeTicket{}, &SlowQueryLog{},
 		&PgDatabase{}, &PgReplica{}, &ObTenant{}, &ObTenantDb{},
 		&Host{}, &InstanceUser{}, &RuntimeSession{}, &Trx{}, &SlowSql{},
 		&Report{}, &AlertRecord{}, &MetricDef{}, &MetaStat{},
-		&Dashboard{}, &ChatSession{}, &ChatMessage{}, &ChatTurnEvent{}, &AuditLog{},
+		&Dashboard{}, &ChatSession{}, &ChatMessage{}, &ChatTurn{}, &ChatTurnEvent{}, &AuditLog{},
+		&ModelConfig{}, &EmbeddingConfig{}, &McpServerConfig{}, &SkillConfig{},
+		&ToolCall{}, &LlmCall{}, &AgentCheckpoint{}, &AgentContextSummary{},
+		&SubagentDef{}, &WorkflowDef{}, &AgentTask{},
 	}
 }

@@ -1,0 +1,13 @@
+{
+  "_comment": "POST /internal/exec/turns 请求体金样（内部 API 裸 JSON）。auth_context 为 apiserver 统一鉴权后的授权上下文（依赖规则④，MVP 桩=全量）；kind/resume_of 可选，示例为首轮用户提交。",
+  "turn_id": "turn_1a2b3c4d5e",
+  "session_id": "sess_9f8e7d6c5b",
+  "user_msg": "诊断 trade_tenant，最近一小时变慢了",
+  "config_version": "cv_20260821_01",
+  "kind": "user",
+  "auth_context": {
+    "user_id": "anonymous",
+    "instance_scope": [],
+    "tool_allowlist": []
+  }
+}

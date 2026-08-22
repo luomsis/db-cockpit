@@ -1,0 +1,14 @@
+: ping
+data: {"type":"thought","step":1,"tool_name":"builtin_get_metrics","status":"running","agent":"diag_subagent"}
+
+data: {"type":"thought","step":1,"tool_name":"builtin_get_metrics","status":"success","agent":"diag_subagent"}
+
+data: {"type":"token","text_delta":"指标显示 CPU 在 14:00 后异常飙升，"}
+
+data: {"type":"card","mode":"create","card":{"card_id":"card_01","card_type":"metric_chart","protocol_version":"1.0","title":"CPU 使用率（近 24h）","status":"final","context":{"instance_id":"inst_trade_core"},"payload":{"series":[{"name":"cpu","unit":"%"}]},"fallback_text":"CPU 使用率图表（近 24h 均值 55%，14:00 后升至 92%）"}}
+
+: ping
+data: {"type":"token","text_delta":"继续采集会话快照证据。"}
+
+data: {"type":"done","usage":{"prompt_tokens":2100,"completion_tokens":380}}
+

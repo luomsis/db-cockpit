@@ -11,7 +11,7 @@ export const uid = () => `${Date.now().toString(36)}${Math.random().toString(36)
 
 export function newSession(): ChatSession {
   const now = Date.now();
-  return { id: uid(), title: '新会话', createdAt: now, updatedAt: now, messages: [] };
+  return { id: uid(), title: '新会话', createdAt: now, updatedAt: now, messages: [], draft: true };
 }
 
 export function loadSessions(): ChatSession[] {

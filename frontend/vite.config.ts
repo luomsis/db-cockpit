@@ -7,7 +7,7 @@ export default defineConfig({
     port: 5173, host: true,
     /* 开发期代理到本地 apiserver（生产由 nginx 反代 /api/ → apiserver:8090） */
     proxy: {
-      '/api': { target: 'http://localhost:8090', changeOrigin: true },
+      '/api': { target: 'http://localhost:8091', changeOrigin: true },
     },
   },
 });

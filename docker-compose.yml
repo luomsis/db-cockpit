@@ -1,4 +1,4 @@
-# ============ DB Cockpit · MVP 部署编排（前端 + apiserver） ============
+# ============ DB Cockpit · MVP 部署编排（前端 + apiserver + agentcluster-mock） ============
 # 构建/运行均固定 linux/amd64：在 arm64 Mac 上构建产物即 amd64，
 # 可 docker save 迁移到内网 x86_64 Linux 直接运行。
 #
@@ -7,7 +7,9 @@
 #
 # 存储：复用宿主机既有 PostgreSQL（postgres-age 容器，宿主机 55432），
 #       不新增 postgres 服务；数据落在独立库 db_cockpit。
-#       未来 agentcluster 就绪后在本文件追加服务（MVP 四容器形态）。
+#       后续按架构文档 §3.4.1 追加服务：agentcluster / collector / remote
+#       （目标五容器形态：agentcluster=Python 专家集群，collector=既有元信息
+#        采集程序·直写白名单表，remote=Go 实例 SQL 访问网关·数据面）。
 
 services:
   frontend:
@@ -42,6 +44,22 @@ services:
       # 宿主机既有 PG：容器内经 host.docker.internal 访问（graphiti/graphiti）
       DB_DSN: "host=host.docker.internal port=55432 user=graphiti password=graphiti dbname=db_cockpit sslmode=disable"
       AUTH_ENABLED: "false"
-      AGENT_MODE: "builtin"
+      AGENT_MODE: "upstream"
+      # 事件源：agentcluster 执行流（当前为契约 mock，见 agentcluster-mock/）
+      AGENT_UPSTREAM_URL: "http://agentcluster-mock:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      - agentcluster-mock
+
+  agentcluster-mock:
+    build:
+      context: ./agentcluster-mock
+    image: db-cockpit-agentcluster-mock:v0.1.0
+    container_name: db-cockpit-agentcluster-mock
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      HEARTBEAT_SECONDS: "15"
+      TOKEN_TICK_SECONDS: "0.024"
+    # 不映射端口：仅 compose 内网可达（入口收口，前端只打 apiserver）

@@ -1,0 +1,7 @@
+data: {"type":"thought","step":1,"tool_name":"builtin_session_snapshot","status":"running"}
+
+data: {"type":"token","text_delta":"已确认 CPU 异常，"}
+
+: ping
+data: {"type":"error","code":"budget_exceeded","message":"轮次步数预算超限","fallback_text":"已基于已获证据给出初步结论：CPU 飙升与会话堆积相关；建议缩小时间窗后重新发起深度诊断。"}
+
