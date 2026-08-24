@@ -2,13 +2,14 @@
 
 | 项 | 内容 |
 |---|---|
-| 文档版本 | v2.1 |
+| 文档版本 | v2.2 |
 | 上游文档 | 《数据库AI智能运维平台架构设计文档》第 5 章；《统一工具注册表详细设计》；《Generative UI卡片协议详细设计》 |
 | 定位 | AI 层核心运行时：承载路由/专家 Agent 的执行循环、端口适配、上下文管理、通信、护栏与可观测 |
 | 状态 | 设计定稿 |
 | 实现状态 | 运行时待 agentcluster（Python）落地——当前 apiserver 侧以 builtin 内置场景 + `agentcluster-mock/` 契约参考实现顶替；实现进度见 docs/ROADMAP.md |
 
 > **变更记录**
+> - v2.2（2026-08-22）：§15 边界契约表对齐 D35/D36/D15——配置与注册表改 **PG 直读**（拉取端点退役，补 tool_definitions）、任务改 **agent_tasks 表契约**（tasks API 与 wake 退役）。
 > - v2.1（2026-08-22）：文档重组（docs/design/）——头部补实现状态。
 > **变更记录**
 > - v2.0（2026-08-21）：依赖规则重构——AgentDefinition 固定专家改为主 agent + 动态 SubagentDef 装配（管理面实体直读）；任务改 agent_tasks 表契约（wake 退役）；工具目标形态经 MCP Server（tools/data 过渡）。详见《Agent集群开发规格》v2.0。
@@ -350,7 +351,7 @@ sequenceDiagram
 | LLM 端口（§5.1） | `init_chat_model`（OpenAI 兼容 base_url） | 原生 tool calling + 流式；`fallback_model` 降级在端口适配器内处理 |
 | 工具端口（§5.2） | tools 节点（定制 ToolNode） | 执行前后挂输入/输出 Schema 校验、限流、审计；候选工具解析按 `tools_policy + db_type` 过滤 |
 | 上下文端口（§5.3/§6） | 自定义 CheckpointSaver + ContextManager | CheckpointSaver **直连 PG 落 agent_checkpoints**（v1.4 内核域直写，表由 Go 统一建模）；ContextManager 装配/压缩自实现（直读 chat_* 呈现域 + agent_context_summaries） |
-| 任务端口（§5.4） | 自定义：submit 调 Go `POST /internal/tasks`；唤醒 = Go 回调 `POST /agentcluster/wake` → graph 续跑 | 任务续聊闭环（§7）以"中断—唤醒续跑"语义实现 |
+| 任务端口（§5.4） | 自定义（v2.0/D35）：直接写 PG `agent_tasks`（INSERT pending → FOR UPDATE SKIP LOCKED 认领 + 租约 → 推进度/置终态）；唤醒 = Go 轮询检出 done 后经 exec 流发起 `system_resume` 轮（kind/resume_of）→ graph 续跑 | 任务续聊闭环（§7）以"中断—唤醒续跑"语义实现；~~tasks API 与 wake 回调~~ 退役 |
 | 异步工具=轮次终止（§4 规则2） | tools 节点返回 task_id 后 graph END，等待 wake 续跑 | 续跑时任务结果作为 system 输入注入（§7 时序不变） |
 | 预算护栏（§10） | `recursion_limit` + 节点内自定义 guard | 步数/工具调用数/时长/token 检查与触发动作仍按 §10 表执行 |
 | 循环检测（§10） | tools 节点内自定义（同工具同参连续 ≥3 次熔断） | |
@@ -399,9 +400,8 @@ YAML（版本化存储于 agentcluster 配置目录，随轨迹留痕版本号�
 | 对话入口 | FE → Go → Python | Go 收口并**终结** `/api/chat/...` 的 SSE（会话级常开 + 15s 心跳）；对 Python 经 `POST /internal/exec/turns` 建立上游执行流，六类事件（§9）进入 Go 会话总线后转发，Go 不解析卡片内容；任务 `progress` 事件由 Go 总线直发（不经 Python）。v1.2 起替代「透明反代」，详见《交互时序与生命周期》 |
 | 工具取数 | Python → Go | `POST /internal/tools/data`：{tool_name, input} → 标准化输出；output_schema 校验在 Go 侧完成后返回，Python 侧不再校验；直连类数据经 Go→remote 访问网关执行（仅 SQL · Python 无感知，实例熔断时 Go 降级通道 c 兜底） |
 | 会话/轨迹/checkpoint | Python ↔ PG | **直连（受限角色，v1.4）**：上下文直读 chat_*（只读）+ 内核域直写 tool_calls / llm_calls / agent_checkpoints / agent_context_summaries；取代原内部读写端点组 |
-| 配置下发（v1.2） | Python → Go | `GET /internal/agent/configs`、`GET /internal/agent/registry`、`GET /internal/agent/skills/:id`：拉取式 + config_version；轮次开始快照版本留痕，进行中轮次跑完旧版本 |
-| 任务提交/查询 | Python → Go | `POST /internal/tasks`、`GET /internal/tasks/:id`（TaskPort 实现） |
-| 任务回调 | Go → Python | `POST /agentcluster/wake`：{task_id, session_id, turn_id, event, result_ref} → 唤醒绑定专家续跑（§7 闭环）；**至少一次投递 + Python 按 task_id+event 幂等去重**，投递失败 Go 有限重试、表状态兜底 |
+| 配置/注册表（v2.0） | Python ↔ PG | **直读管理面表（D36 + D15）**：model_configs / mcp_server_configs / skill_configs / subagent_defs / workflow_defs / **tool_definitions**（active 且 health=ok）；缓存 + config_version 校验，轮次边界生效（进行中轮次跑完旧版本，快照留痕 chat_turns） |
+| 任务（v2.0，已退役 API） | Python ↔ PG | **agent_tasks 表契约（D35）**：agent 直写（INSERT pending / FOR UPDATE SKIP LOCKED 认领 / 租约 / 推进度），Go 只读轮询 + 限列写 notified/cancel_requested；~~`POST /internal/tasks`、`GET /internal/tasks/:id`、`POST /agentcluster/wake`~~ 退役 |
 | LLM | Python → 公司 AI 平台 | OpenAI 兼容端点直连；脱敏 / 降级 / 计量在 LLM 端口适配器内完成 |
 
 **边界重申（v1.4）**：Python 不对外暴露端口、不直连任何旧系统；对 PG 为**读写分域受限直连**（chat_* 呈现域只读 + 内核域读写，受限角色，表由 Go 统一建模）——外部依赖为 Go 内部 API、公司 AI 平台与受限 PG 访问三类。会话呈现域（SSE 事实源）仍收口 Go。
@@ -412,7 +412,7 @@ YAML（版本化存储于 agentcluster 配置目录，随轨迹留痕版本号�
 |---|---|
 | 权限守卫 | 桩实现：一律返回全量实例范围；接口与调用链保留，二期接 SSO/RBAC 后替换 |
 | 敏感过滤 | 开关默认关闭（内网验证阶段），对外展示前开启并回归 |
-| model_profile | 经 `GET /internal/agent/configs` 从 Go 配置中心拉取（设置中心 model_configs 表为事实源）；环境变量仅作引导兜底（公司 AI 平台模型未定名，随时可换） |
+| model_profile | 直读 PG `model_configs`（D36 配置直读；设置中心表为事实源）；环境变量仅作引导兜底（公司 AI 平台模型未定名，随时可换） |
 | CheckpointSaver | 经 Go 内部 API 落 PG（§14.1）；延迟不可接受时按 §15 演进路径处理 |
 | 页面上下文 | `inject_page_context` 留桩（MVP 不做页面上下文注入，二期按架构文档 §11.2 启用） |
 | Skills / MCP / CLI | 不实现；Skill 加载器接口保留（工具注册表 §7 为二期依据） |

@@ -2,14 +2,15 @@
 
 | 项 | 内容 |
 |---|---|
-| 文档版本 | v2.1 |
+| 文档版本 | v2.2 |
 | 日期 | 2026-08-22 |
-| 上游文档 | 《数据库AI智能运维平台架构设计文档》v2.0；《Agent执行框架详细设计》v2.0；《统一工具注册表详细设计》v1.4；《交互时序与生命周期》v2.0 |
+| 上游文档 | 《数据库AI智能运维平台架构设计文档》v2.3；《Agent执行框架详细设计》v2.0；《统一工具注册表详细设计》v1.6；《交互时序与生命周期》v2.0 |
 | 定位 | agentcluster（Python）服务的**对接开发规格**：照此实现 agent 服务，可与 apiserver 无缝对接 |
 | 参考实现 | `agentcluster-mock/main.py`（可运行的最小契约样例） |
 | 实现状态 | **服务未实现**（apiserver 侧契约已就绪，当前以 agentcluster-mock 联调）；实现进度见 docs/ROADMAP.md |
 
 > **变更记录**
+> - v2.2（2026-08-22）：插件域对齐（D15）——§2.1 明确 MVP 工具支持范围（仅 http MCP）；§3 管理面表清单补 `tool_definitions`。
 > - v2.1（2026-08-22）：文档重组——去除任务分派表述（对接方/周排期）；里程碑节改为模块依赖顺序；头部补实现状态。
 > - v2.0（2026-08-21）：依赖规则重构——四条依赖通道（唯一 exec 调用 / PG 表契约 / MCP / 权限注入）；固定专家改为**主 agent + 动态 subagent**（SubagentDef 直读装配 + workflow 两级）；配置拉取 API 退役改 **PG 直读**；任务改为 **agent_tasks 表契约**（wake 退役）；exec 请求新增 `auth_context`，事件新增 `agent` 字段。
 > - v1.0（2026-08-21）：首版。
@@ -77,7 +78,8 @@ agent 服务是**无状态常驻推理服务**（Python + LangGraph，≥2 副�
 
 ### 2.1 工具执行（依赖规则③）
 
-- **目标形态**：一切工具经 **MCP Server** 执行（每类数据域一个 Server：metrics-mcp / instance-mcp / alert-mcp…），你持有 MCP 连接池（stdio/http），`tools/list` 发现 → 注册表准入后使用；
+- **MVP 支持范围（D15）**：**仅 http 传输的 MCP Server**（stdio 与 CLI 不支持，`transport` 校验拒绝）；MCP 工具须在 `tool_definitions` 注册表中 `status=active`（经人工定级）且 `health=ok` 才进入候选——agentcluster **PG 直读**注册表（§3 管理面域），按 subagent `toolset` 前缀解析（如 `metrics-mcp.*`）；
+- **目标形态**：工具经 MCP Server 执行（每类数据域一个 Server：metrics-mcp / instance-mcp / alert-mcp…），你持有 http 连接池，直连各 Server 调用（apiserver 不中转）；
 - **MVP 过渡**：MCP 未就绪的 builtin 工具经 `POST /internal/tools/data`（apiserver 过渡通道，`{tool_name, input}` → 标准化输出；output_schema 已由 Go 校验）；按工具逐个 MCP 化后该通道退役。
 
 ### 2.2 异步任务（agent_tasks 表契约，取代 tasks API 与 wake）
@@ -105,7 +107,7 @@ agent 服务是**无状态常驻推理服务**（Python + LangGraph，≥2 副�
 | 呈现域 | `chat_sessions` / `chat_turns` / `chat_messages` / `chat_turn_events` | **只读**（上下文装配；chat_turns 有 kind/resume_of/config_version） |
 | 内核域 | `tool_calls`（call_id 幂等）/ `llm_calls` / `agent_checkpoints`（session+checkpoint 唯一）/ `agent_context_summaries` | **读写** |
 | 任务域 | `agent_tasks` | **读写**（除 notified/cancel_requested 两列） |
-| 管理面 | `subagent_defs` / `workflow_defs` / `model_configs` / `mcp_server_configs` / `skill_configs` | **只读**（运行时装配输入；model_configs 含明文 api_key，**严禁写日志**；缓存 + config_version 校验，变更轮次边界生效） |
+| 管理面 | `subagent_defs` / `workflow_defs` / `model_configs` / `mcp_server_configs` / `skill_configs` / `tool_definitions`（D15 插件域注册表：status=active 且 health=ok 的工具才可用） | **只读**（运行时装配输入；model_configs 含明文 api_key，**严禁写日志**；缓存 + config_version 校验，变更轮次边界生效） |
 | 其余表 | 审计/大盘/元数据等 | 不可见（目标形态独立 PG 角色） |
 
 ---
@@ -150,7 +152,7 @@ routing_hints: ["诊断", "变慢", "根因"]
 | **M2 上下文管理** | 装配（近 N 轮 + 摘要 + Skill）；>8 轮生成滚动摘要直写 `agent_context_summaries` | 9 轮会话第 10 轮装配只含近 8 轮 + 摘要；摘要表写入正确 |
 | **M3 CheckpointSaver** | 直写 `agent_checkpoints`（thread=session_id）；resume 恢复 | 中断后续跑状态逐项一致；多副本不串扰 |
 | **M4 轨迹/计量** | `tool_calls` / `llm_calls` 直写 | 单轮 ≥3 工具调用行数与状态正确；token 计量自洽 |
-| **M5 工具执行** | ToolPort 候选解析（toolset + auth_context 裁剪）；MCP 连接池 + tools/list 发现；MVP 经 tools/data 过渡 | auth_context 裁剪生效（越权工具不出现）；MCP 发现→准入→调用链路通 |
+| **M5 工具执行** | ToolPort 候选解析（tool_definitions 直读：active + health=ok，toolset 前缀匹配 + auth_context 裁剪）；http MCP 连接池；MVP 经 tools/data 过渡 | auth_context 裁剪生效（越权工具不出现）；MCP 调用链路通（注册表准入后使用） |
 | **M6 异步任务** | agent_tasks 写入/认领/租约/推进度/取消观察（§2.2） | call_id 幂等；进度变化被 apiserver 轮询转发（观察 chat_turn_events）；done 后收到 system_resume exec |
 | **M7 动态 subagent 装配** | SubagentDef/WorkflowDef 直读缓存 + 版本热载 + L1 workflow 渲染 + 主 agent 路由派发 | 管理页改 sys_prompt 后新一轮生效；路由准确率 ≥80%（20 问抽检）；shadow 双跑比对 |
 | **M8 卡片生成器** | card-protocol/1.0；output_cards 映射；schema 校验失败一次修复再降级 fallback_text | 5 种卡片信封合法；非法输出被修复或降级 |

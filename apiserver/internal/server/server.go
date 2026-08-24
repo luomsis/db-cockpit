@@ -115,13 +115,20 @@ func New(cfg config.Config, gdb *gorm.DB, rt *agent.Runtime) *gin.Engine {
 			ec.POST("/:id/test", h.TestEmbeddingConfig)
 		}
 
-		// 插件中心：MCP 服务 / Skills
+		// 插件中心：MCP 服务 / Skills / 工具注册表（插件域 D15）
 		mp := api.Group("/mcp-servers")
 		{
 			mp.GET("", h.ListMcpServers)
 			mp.POST("", h.CreateMcpServer)
 			mp.PUT("/:id", h.UpdateMcpServer)
 			mp.DELETE("/:id", h.DeleteMcpServer)
+			mp.POST("/:id/discover", h.DiscoverMcpServer) // 触发式 tools/list → draft 草案
+			mp.POST("/:id/health", h.HealthMcpServer)     // 连通性 → 工具 health 标记
+		}
+		td := api.Group("/tool-definitions")
+		{
+			td.GET("", h.ListToolDefinitions)
+			td.PUT("/:id", h.UpdateToolDefinition)
 		}
 		sk := api.Group("/skills")
 		{

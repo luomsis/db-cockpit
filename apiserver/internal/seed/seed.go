@@ -309,6 +309,10 @@ func Run(gdb *gorm.DB) error {
 	if err := RunWhitelist(gdb); err != nil {
 		return err
 	}
+	// 插件域（D15）：mcp_server_configs / tool_definitions / config_versions
+	if err := RunPlugins(gdb); err != nil {
+		return err
+	}
 	var clusterCount int64
 	if err := gdb.Model(&model.Cluster{}).Count(&clusterCount).Error; err != nil {
 		return err

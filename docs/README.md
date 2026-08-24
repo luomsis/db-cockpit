@@ -9,7 +9,7 @@
 | [数据库AI智能运维平台架构设计文档](design/数据库AI智能运维平台架构设计文档.md) | 总体架构：分层、控制面/数据面、存储三域分治、核心数据模型（§6）、分期路线 | 总体定稿；已实现部分见 §6.1.1/§6.1.2 注记与 ROADMAP |
 | [交互时序与生命周期](design/交互时序与生命周期.md) | chat 全生命周期 / 插件 / 任务 / collector / remote 五组时序与不变量 | §2-§5 已实现（apiserver + agentcluster-mock 联调）；§6/§7（collector/remote）设计态 |
 | [Agent执行框架详细设计](design/Agent执行框架详细设计.md) | AI 层运行时：四端口、ReAct 循环、护栏、轨迹与 LangGraph 落地映射 | 设计定稿；运行时待 agentcluster 落地（当前 builtin/mock 事件源） |
-| [统一工具注册表详细设计](design/统一工具注册表详细设计.md) | Tool Schema、路由/风险分级、MVP 工具清单、vendor_agent 适配器规范 | 设计定稿；`tool_definitions` 表与管理 API 待落地（`/internal/tools/data` 现 501） |
+| [统一工具注册表详细设计](design/统一工具注册表详细设计.md) | Tool Schema、路由/风险分级、MVP 工具清单、vendor_agent 适配器规范 | 设计定稿；**插件域（apiserver 侧）已实施**（§10：注册表/发现/定级/健康，D15）；agent 消费侧待 agentcluster |
 | [Generative UI卡片协议详细设计](design/Generative%20UI卡片协议详细设计.md) | card-protocol/1.0：卡片信封、5 种 MVP 卡片、渲染器注册表约定 | 协议定稿；前端渲染器已实现（ChatPanel 卡片流），Python 侧生成器待 agentcluster |
 
 ## 二、约定与契约类（contract/ 与仓库契约工件）

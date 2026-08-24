@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -17,23 +18,38 @@ import (
 
 type mcpServerBody struct {
 	Name      string          `json:"name"`
-	Transport string          `json:"transport"` // stdio | http，空默认 http
-	Command   string          `json:"command"`   // stdio 启动命令 / http 服务地址
-	Args      json.RawMessage `json:"args"`      // stdio 参数数组 / http 附加参数
-	Env       json.RawMessage `json:"env"`       // stdio 环境变量 / http 自定义请求头
+	Transport string          `json:"transport"` // http（MVP 仅 http，stdio 校验拒绝）
+	BaseURL   string          `json:"baseUrl"`   // http 端点地址
+	Command   string          `json:"command"`   // stdio 预留（MVP 不支持）
+	Args      json.RawMessage `json:"args"`
+	Env       json.RawMessage `json:"env"`
+	Status    *string         `json:"status"` // active | deprecated
 	Remark    string          `json:"remark"`
 	Enabled   *bool           `json:"enabled"`
 }
 
+// normalizeTransport MVP 仅支持 http（D15）；stdio 拒绝
 func normalizeTransport(t string) (string, bool) {
 	switch t {
 	case "":
 		return "http", true
-	case "stdio", "http":
+	case "http":
 		return t, true
 	default:
 		return "", false
 	}
+}
+
+// validateBaseURL http 端点必填且须为 http(s) 地址
+func validateBaseURL(u string) bool {
+	return strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://")
+}
+
+func mcpStatusOrDefault(s *string) string {
+	if s == nil || *s == "" {
+		return "active"
+	}
+	return *s
 }
 
 func (h *H) ListMcpServers(c *gin.Context) {
@@ -53,7 +69,15 @@ func (h *H) CreateMcpServer(c *gin.Context) {
 	}
 	transport, ok := normalizeTransport(body.Transport)
 	if !ok {
-		envelope.BadRequest(c, "transport must be stdio or http")
+		envelope.BadRequest(c, "transport not supported (MVP: http only)")
+		return
+	}
+	if !validateBaseURL(body.BaseURL) {
+		envelope.BadRequest(c, "base_url required (http:// or https://)")
+		return
+	}
+	if body.Status != nil && *body.Status != "active" && *body.Status != "deprecated" {
+		envelope.BadRequest(c, "status must be active/deprecated")
 		return
 	}
 	args, ok := paramsJSON(body.Args)
@@ -68,8 +92,9 @@ func (h *H) CreateMcpServer(c *gin.Context) {
 	}
 	now := time.Now().UnixMilli()
 	m := model.McpServerConfig{
-		ID: agent.NewID("mcp"), Name: body.Name, Transport: transport, Command: body.Command,
-		Args: args, Env: env, Remark: body.Remark,
+		ID: agent.NewID("mcp"), Name: body.Name, Transport: transport, BaseURL: body.BaseURL,
+		Command: body.Command, Args: args, Env: env, Version: 1, Status: mcpStatusOrDefault(body.Status),
+		Remark: body.Remark,
 		Enabled: body.Enabled == nil || *body.Enabled,
 		CreatedAt: now, UpdatedAt: now,
 	}
@@ -77,6 +102,7 @@ func (h *H) CreateMcpServer(c *gin.Context) {
 		envelope.Internal(c, err)
 		return
 	}
+	h.bumpPluginVersion()
 	h.audit("mcp_server.create", "mcp_server", m.ID, map[string]interface{}{"name": m.Name})
 	envelope.OK(c, m)
 }
@@ -94,7 +120,15 @@ func (h *H) UpdateMcpServer(c *gin.Context) {
 	}
 	transport, ok := normalizeTransport(body.Transport)
 	if !ok {
-		envelope.BadRequest(c, "transport must be stdio or http")
+		envelope.BadRequest(c, "transport not supported (MVP: http only)")
+		return
+	}
+	if !validateBaseURL(body.BaseURL) {
+		envelope.BadRequest(c, "base_url required (http:// or https://)")
+		return
+	}
+	if body.Status != nil && *body.Status != "active" && *body.Status != "deprecated" {
+		envelope.BadRequest(c, "status must be active/deprecated")
 		return
 	}
 	args, ok := paramsJSON(body.Args)
@@ -109,19 +143,23 @@ func (h *H) UpdateMcpServer(c *gin.Context) {
 	}
 	m.Name = body.Name
 	m.Transport = transport
+	m.BaseURL = body.BaseURL
 	m.Command = body.Command
 	m.Args = args
 	m.Env = env
+	m.Status = mcpStatusOrDefault(body.Status)
 	m.Remark = body.Remark
 	if body.Enabled != nil {
 		m.Enabled = *body.Enabled
 	}
+	m.Version++
 	m.UpdatedAt = time.Now().UnixMilli()
 	if err := h.DB.Save(&m).Error; err != nil {
 		envelope.Internal(c, err)
 		return
 	}
-	h.audit("mcp_server.update", "mcp_server", m.ID, map[string]interface{}{"name": m.Name})
+	h.bumpPluginVersion()
+	h.audit("mcp_server.update", "mcp_server", m.ID, map[string]interface{}{"name": m.Name, "version": m.Version})
 	envelope.OK(c, m)
 }
 
@@ -131,6 +169,9 @@ func (h *H) DeleteMcpServer(c *gin.Context) {
 		envelope.NotFound(c, "mcp server not found")
 		return
 	}
+	// 级联清理该 server 的注册表行（表结构即契约：不留孤儿工具）
+	h.DB.Where("server_id = ?", c.Param("id")).Delete(&model.ToolDefinition{})
+	h.bumpPluginVersion()
 	h.audit("mcp_server.delete", "mcp_server", c.Param("id"), nil)
 	envelope.OK(c, gin.H{"ok": true})
 }

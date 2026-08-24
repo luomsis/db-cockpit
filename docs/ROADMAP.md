@@ -34,6 +34,7 @@
 | chat 全链路 | Go 终结 SSE（会话级常开 / 15s 心跳 / `last_event_id` 重放 / 会话内单调 seq 落库）、`client_request_id` 幂等、追问取消替换、restart 恢复（running→failed）、上游错误码族（unreachable/broken/idle/unexpected_end）；`AGENT_MODE` 双事件源（builtin 内置场景 / upstream 消费 exec 执行流，与 agentcluster-mock 联调通过） |
 | 任务总线 | `agent_tasks` 轮询（2s）、progress 事件直发会话总线、done→system_resume 续跑、取消级联（限列写 cancel_requested）、租约观察（`agent/taskbus.go`） |
 | 管理面 CRUD | subagents / workflows / model-configs / embedding-configs / mcp-servers / skills（启停 + 审计 + api_key 脱敏） |
+| 插件域（D15，2026-08-23 实施） | `tool_definitions`/`config_versions` 表 + 4 个管理端点（触发式 `tools/list` 发现→draft 草案、人工定级状态机、连通性健康标记、列表过滤）；mcp/skill 补 version/status/base_url；stdio 校验拒绝；最小 MCP http 客户端（JSON/SSE 双承载）；版本自增 + 删除级联；演示种子与全量测试（工具注册表 §10.8） |
 | 数据面白名单消费（架构 §6.1.2） | 告警聚合（Critical/Major→P1/P2、次数、首触时间）；慢 SQL 指纹聚合（digest 分组、按实例三级解析：名称→endpoint→OB `extensions.units`）；`GET /api/changes`（风险 / 对象 / 时间窗闭区间过滤）；`GET /api/meta/clusters[/:id]`（集群→实例→节点三级下钻）；空表自动回退 UI 演示表 |
 | 大盘与查询 | 指标 mock 确定性（与前端 mock 算法对拍黄金向量）、dash series / annotations、大盘 CRUD 与导入 |
 | 其余 REST | 集群 / 实例 / 租户 / 主机 / 报告 / 参数（pending+历史）/ 账号 / 会话 / 事务 / 慢SQL / SQL 诊断建议 / overview 库类型活计数 |
@@ -60,14 +61,14 @@
 | remote 网关 | 仅 SQL 实例访问：凭证表 / 白名单双保险 / 审计直写 / 熔断（`POST /query` 契约已定） | 时序 §7、§8.1 |
 | Issue 域 | ISSUE / ALERT_RECORD / ISSUE_EVENT 状态机（告警**消费端聚合已先行**，fingerprint 与状态流转未做） | 架构 §6.2 |
 | `/internal/tools/data` | builtin 工具取数过渡通道（现 501；Probe 三通道路由待实现） | 工具注册表 §8 |
-| 工具注册表落地 | `tool_definitions` 表 + 管理 API + 8 个 builtin 工具 | 工具注册表 |
+| 插件域 agent 消费侧 | agentcluster 直读 `tool_definitions`/`mcp_server_configs` + `config_versions` 轮询 + toolset 前缀解析 + active∧health=ok 过滤（**apiserver 侧已实现**，D15，工具注册表 §10） | 工具注册表 §10.8 |
 | 指标真实接入 | 旧监控 TSDB 代理 + 最小指标白名单 + 缓存（现为确定性 mock） | 架构 §4.4 |
 | 北极星全链路 | 大盘真实异常 → chat 诊断 → 真实证据（经 remote）→ 异步任务 → 报告卡 → 追问 | §4 |
 | 鉴权 | `AUTH_ENABLED` Bearer 占位已有；OIDC / RBAC / 实例范围授权接入 | 架构 §8 |
 
 ## 3. 二期
 
-HITL 中途询问（复用中断-恢复机制）；结构化计划卡；知识库问答（说明书 RAG + open_link）；页面上下文注入与行级问 AI；自治服务页（异步任务中心 / 建议展示 / 手动触发）；L1/L2 动作提议与确认执行；外采 vendor_agent 适配器正式接入；evals 回归（fixtures 回放 + 标注集）；subagent 并行取证；跨会话记忆（实例档案）；会话 fork 重放；工具健康检查与降级标记；OTel 全链路；shadow diff 比对；任务死信 Issue 化；MCP 网关独立部署；AgentDefinition 发布状态机与环境隔离；自建采集 Agent + 本地时序库（指标数据源切换）；Redis / 对象存储按需引入；SSO。
+HITL 中途询问（复用中断-恢复机制）；结构化计划卡；知识库问答（说明书 RAG + open_link）；页面上下文注入与行级问 AI；自治服务页（异步任务中心 / 建议展示 / 手动触发）；L1/L2 动作提议与确认执行；外采 vendor_agent 适配器正式接入；evals 回归（fixtures 回放 + 标注集）；subagent 并行取证；跨会话记忆（实例档案）；会话 fork 重放；工具健康检查与降级标记；OTel 全链路；shadow diff 比对；任务死信 Issue 化；独立插件执行体（CLI 沙箱 / stdio MCP / 插件网关化，D15 预留）；AgentDefinition 发布状态机与环境隔离；自建采集 Agent + 本地时序库（指标数据源切换）；Redis / 对象存储按需引入；SSO。
 
 ## 4. 北极星验收场景
 
@@ -102,3 +103,4 @@ HITL 中途询问（复用中断-恢复机制）；结构化计划卡；知识�
 | D12 | 表结构边界 | 部分定稿：元数据/告警/变更/慢日志/水位已落地（见 D14）；凭证表、执行审计表、事件类待定 |
 | D13 | 存储三域分治（2026-08-21） | agentcluster 直连 PG 读写分域（呈现域只读 / 内核域读写，Go 统一建模，受限角色） |
 | D14 | 数据面白名单表定稿（2026-08-22） | 元数据 4 表 + 告警/变更/慢日志 3 表建模落地（`deploy/db/` + GORM）；**lock 不建表**（锁走 remote 实时采集，死锁历史另立事件表）；消费端聚合先行，Issue 化后续；指标表继续 mock |
+| D15 | agent 插件域（2026-08-22） | **合并进 apiserver，不新增容器**（仅 http MCP + 无 CLI/stdio → 无运行时可托管；低调用量；暂无权限诉求）：apiserver 管理插件（mcp_server_configs/skill_configs/tool_definitions），agentcluster **PG 表直读**使用（规则②延伸，config_version 轮次边界生效）；工具调用 agent→MCP server 直连（规则③）；MCP(http) 插件生态由二期提前 MVP；独立插件执行体（CLI/stdio/网关化）留二期。详见工具注册表 §10 |

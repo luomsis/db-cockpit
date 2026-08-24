@@ -25,6 +25,7 @@
 | dash-annotations.json | GET /api/dash/annotations?range=24h |
 | dashboards.json | GET /api/dashboards |
 | chat-sessions.json | GET /api/chat/sessions |
+| tool-definitions.json | GET /api/tool-definitions（插件域注册表，server_id/status/category 过滤，响应含 configVersion） |
 | error-404.json | 404 错误体样例 |
 
 注意：

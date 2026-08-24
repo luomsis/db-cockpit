@@ -2,13 +2,14 @@
 
 | 项 | 内容 |
 |---|---|
-| 文档版本 | v2.2 |
+| 文档版本 | v2.3 |
 | 日期 | 2026-08-22 |
 | 状态 | 已评审（v2.0 依赖规则定稿；v2.1/§6.1.2 数据面白名单落地） |
 | 范围 | 整体架构设计，不含代码实现 |
 | 实现状态 | 功能级实现进度统一见 `docs/ROADMAP.md`；本文档内「已实现/设计态」在 §6.1.1/§6.1.2 及尾注标注 |
 
 > **变更记录**
+> - v2.3（2026-08-22）：**插件域设计定稿（D15，详见工具注册表 §10）**——agent 插件服务合并进 apiserver（不新增容器）：apiserver 管理插件（mcp_server_configs/skill_configs/tool_definitions）、agentcluster 经 PG 表直读使用（规则②延伸，config_version 轮次边界生效）；MCP(http) 插件生态由二期提前 MVP；MVP 边界 http-only、无 CLI/stdio；工具调用 agent→MCP server 直连（规则③）。§3.4.1 二期演进占位同步修订。
 > - v2.2（2026-08-22）：文档重组（docs/design/ + 分类索引见 docs/README.md）——头部补实现状态指引；尾注 8 白名单「表结构待定」更新为已定稿；§10 去人力配比表述（任务分派文档退役，路线图改见 docs/ROADMAP.md）。
 > - v2.1（2026-08-22）：**数据面白名单表落地**（§6.1.2）——`alert_raw` / `change_ticket` / `slow_query_log` 建模定稿（`deploy/db/002_whitelist.sql` + GORM），`lock` 表评审结论为**不建**（锁走 remote 实时采集）；指标表继续 mock 待二期。消费端聚合先行：告警 Critical/Major→P1/P2 映射与对象聚合、慢 SQL 指纹聚合（digest GROUP BY）、变更工单时间窗 API、元数据域三级下钻 API（`/api/meta/*`）；演示种子与单测/集成测试/端到端验证全绿（Issue 域状态机仍为后续演进）。
 > - v2.0（2026-08-21）：**依赖规则重构**——四条依赖通道定稿（①唯一 exec 调用含 auth_context；②PG 表契约五域分治；③能力经 MCP；④权限注入）；任务改 agent_tasks 表契约（tasks API 与 wake 退役）；配置改直读 PG（拉取 API 退役）；固定专家改为主 agent + 动态 subagent（subagent_defs/workflow_defs 管理面实体）。代码已同步（taskbus/管理面 CRUD/限列写）。
@@ -284,7 +285,7 @@ flowchart TB
 | 外采诊断 Agent | 深度诊断能力（apiserver 任务总线 submit/poll + vendor 适配器，shadow 注册位） |
 | MCP Servers | 插件生态工具（二期，agentcluster 直连持有连接池） |
 
-**二期演进占位**：MCP 网关（网络隔离需求时从 agentcluster 拆出）、本地时序库 + 采集器（自建采集替换旧监控源）、CLI 沙箱执行体（工具注册表 §7.2 的承载程序，归属二期另定）、对象存储（大结果外置）。
+**二期演进占位**：独立插件执行体（CLI 沙箱 / stdio MCP 托管——插件域 MVP 合并进 apiserver（D15，工具注册表 §10），网络隔离或规模化需求时从插件域拆出独立网关）、本地时序库 + 采集器（自建采集替换旧监控源）、对象存储（大结果外置）。
 
 ### 3.5 Go ↔ Python 边界契约（v1.2 修订）
 
@@ -294,11 +295,9 @@ flowchart TB
 |---|---|---|
 | 执行流 | `POST /internal/exec/turns`（Go → Python，SSE 响应） | 轮次执行唯一通道：`{turn_id, session_id, user_msg, config_version, resume_of?}`，Python 以六类事件流式回传；替代原「upstream 透明反代」 |
 | 工具数据 | `POST /internal/tools/data`（tool_name + input → 标准化输出） | Agent 工具取数唯一入口：指标/告警/慢SQL/会话快照等，Probe Executor 三通道路由在 Go 侧完成 |
-| PG 直连（v1.4） | agentcluster ↔ PostgreSQL（受限角色） | 上下文直读（chat_* 只读）+ 内核域直写（tool_calls / llm_calls / agent_checkpoints / agent_context_summaries）；取代 v1.3 前的 sessions/turns/trace/checkpoints 内部端点组 |
-| 配置下发 | `GET /internal/agent/configs`、`GET /internal/agent/registry`、`GET /internal/agent/skills/:id` | agentcluster 拉取模型/MCP/Skill 配置（明文 api_key 仅内网）与 ToolDefinition 注册表；Skill 正文按需加载 |
-| 插件发现（二期） | `POST /agentcluster/discover`、`POST /internal/registry/tools/draft` | MCP Server `tools/list` 发现 → ToolDefinition 草案回写 → 人工定级后 active |
-| 任务 | `POST /internal/tasks`（submit → task_id）、`GET /internal/tasks/:id` | TaskPort 实现；`DIAG_TASK` 表 Go 侧持有 |
-| 任务回调 | `POST /agentcluster/wake`（task_event：task_id/session_id/turn_id/event/result_ref） | Go 调度器任务完成后回调 Python，唤醒绑定专家续跑（任务续聊闭环，见执行框架 §7）；**至少一次投递 + Python 按 task_id+event 幂等去重**，投递失败 Go 有限重试，表状态兜底对账 |
+| PG 直连（v1.4） | agentcluster ↔ PostgreSQL（受限角色） | 上下文直读（chat_* 只读）+ 内核域直写（tool_calls / llm_calls / agent_checkpoints / agent_context_summaries）+ **管理面只读**（subagent_defs / workflow_defs / model_configs / mcp_server_configs / skill_configs / tool_definitions，D36 配置直读 + D15 插件域）；取代 v1.3 前的 sessions/turns/trace/checkpoints 内部端点组与 v2.0 前的配置拉取端点组 |
+| 插件发现（D15） | `POST /api/mcp-servers/:id/discover`（管理 API，非内部通道） | 管理页触发 → **apiserver 直连 MCP Server `tools/list`** → `tool_definitions` 落 draft 草案 → 人工定级 → active；取代原 Go→Python discover 回写链路（`POST /agentcluster/discover`、`POST /internal/registry/tools/draft` 已退役） |
+| 任务（已退役，D35） | ~~`POST /internal/tasks`、`GET /internal/tasks/:id`~~、~~`POST /agentcluster/wake`~~ | 由 **agent_tasks 表契约**取代：agent 直写（认领/租约/推进度），Go 只读轮询（进度直发 + done→system_resume 续跑）+ 限列写 notified/cancel_requested |
 
 **SSE 边界（v1.2 修订：Go 终结点模型）**：`FE → GET /api/chat/sessions/:id/stream`（Go 终结，**会话级常开**，15s 心跳）；Go 对 Python 经 `/internal/exec/turns` 建立上游执行流，事件进入 Go 会话总线后转发前端。六类事件（thought/token/card/progress/done/error）Go 只做事件级转发与留痕（`chat_turn_events`，会话内单调 seq），不解析卡片语义。相比 v1.1 的透明反代，该模型补齐四个执行点：任务总线 `progress` 事件直接注入会话总线（不经 Python）；断线重放完全由 Go 承担（前端连接与执行流解耦，FE 断线执行不中断）；同 session 并发轮次仲裁（新轮次取消旧轮次）；shadow 双跑/灰度复制比对。`AGENT_MODE` 语义由「整组路由切换」改为「事件源切换」：上游不可用时逐会话回退 builtin。
 

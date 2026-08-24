@@ -1,6 +1,8 @@
 package model
 
 import (
+	"time"
+
 	"gorm.io/datatypes"
 )
 
@@ -428,15 +430,18 @@ type EmbeddingConfig struct {
 	UpdatedAt   int64          `gorm:"autoUpdateTime:false" json:"updatedAt"`
 }
 
-// McpServerConfig：MCP 服务插件。Transport 为 stdio 时 Command 是启动命令，Args 是参数；
-// 为 http 时 Command 是服务地址，Headers 存请求头。
+// McpServerConfig：MCP 服务插件（D15 插件域）。MVP 仅支持 http 传输（stdio 校验拒绝），
+// base_url 为端点地址；version/status 供回放与灰度（轮次边界生效）。
 type McpServerConfig struct {
 	ID        string         `gorm:"primaryKey;size:64" json:"id"`
 	Name      string         `gorm:"size:128" json:"name"`
-	Transport string         `gorm:"size:16" json:"transport"` // stdio | http
-	Command   string         `gorm:"size:512" json:"command"`
-	Args      datatypes.JSON `json:"args"`    // stdio 启动参数数组 / http 附加参数
-	Env       datatypes.JSON `json:"env"`     // stdio 环境变量 / http 自定义请求头
+	Transport string         `gorm:"size:16" json:"transport"` // http（MVP 仅 http，stdio 校验拒绝）
+	BaseURL   string         `gorm:"column:base_url;size:256" json:"baseUrl"`
+	Command   string         `gorm:"size:512" json:"command"` // stdio 预留（MVP 不支持）
+	Args      datatypes.JSON `json:"args"`                    // 附加参数
+	Env       datatypes.JSON `json:"env"`                     // 自定义请求头 / 环境变量
+	Version   int            `json:"version"`
+	Status    string         `gorm:"size:16" json:"status"` // active | deprecated
 	Remark    string         `gorm:"size:256" json:"remark"`
 	Enabled   bool           `json:"enabled"`
 	CreatedAt int64          `gorm:"autoCreateTime:false" json:"createdAt"`
@@ -449,10 +454,54 @@ type SkillConfig struct {
 	Name        string `gorm:"size:128" json:"name"`
 	Description string `gorm:"size:512" json:"description"`
 	Content     string `json:"content"` // SKILL.md 正文
+	Version     int    `json:"version"`
+	Status      string `gorm:"size:16" json:"status"` // active | deprecated
 	Enabled     bool   `json:"enabled"`
 	CreatedAt   int64  `gorm:"autoCreateTime:false" json:"createdAt"`
 	UpdatedAt   int64  `gorm:"autoUpdateTime:false" json:"updatedAt"`
 }
+
+// ToolDefinition 统一工具注册表（工具注册表 §2/§10 · 管理面域 · agentcluster 只读）。
+// 发现流水：draft（apiserver 直连 tools/list 生成）→ 人工定级 → active；health 独立于 status。
+type ToolDefinition struct {
+	ID              string         `gorm:"primaryKey;size:64" json:"id"`                          // td_
+	ToolName        string         `gorm:"column:tool_name;size:160;uniqueIndex" json:"toolName"` // <server>.<tool>，跨 server 冲突隔离
+	ServerID        string         `gorm:"column:server_id;size:64;index" json:"serverId"`
+	OriginToolName  string         `gorm:"column:origin_tool_name;size:128" json:"originToolName"`
+	DisplayName     string         `gorm:"size:128" json:"displayName"`
+	Description     string         `json:"description"`
+	UsageHints      datatypes.JSON `gorm:"column:usage_hints" json:"usageHints"`
+	Category        string         `gorm:"size:32" json:"category"`              // metrics/session/lock/slow_sql/diagnosis/alert/topology/…
+	DbTypes         datatypes.JSON `gorm:"column:db_types" json:"dbTypes"`       // 建表即填；agent 侧过滤二期开
+	RoutingPriority int            `gorm:"column:routing_priority" json:"routingPriority"`
+	RiskLevel       string         `gorm:"column:risk_level;size:8" json:"riskLevel"`   // L0/L1/L2（人工定级项）
+	AuditLevel      string         `gorm:"column:audit_level;size:16" json:"auditLevel"` // full/summary/none
+	RateLimit       datatypes.JSON `gorm:"column:rate_limit" json:"rateLimit"`
+	Idempotent      bool           `json:"idempotent"`
+	InputSchema     datatypes.JSON `gorm:"column:input_schema" json:"inputSchema"` // 发现时从 tools/list 自动带入
+	OutputSchema    datatypes.JSON `gorm:"column:output_schema" json:"outputSchema"`
+	OutputCard      string         `gorm:"column:output_card;size:64" json:"outputCard"`
+	ExecutionMode   string         `gorm:"column:execution_mode;size:16" json:"executionMode"` // sync/async
+	TimeoutMs       int            `gorm:"column:timeout_ms" json:"timeoutMs"`
+	Status          string         `gorm:"size:16;index" json:"status"` // draft/active/deprecated
+	Health          string         `gorm:"size:16" json:"health"`       // ok/unreachable/""（未检查）
+	LastCheckedAt   *time.Time     `gorm:"column:last_checked_at" json:"lastCheckedAt,omitempty"`
+	Version         int            `json:"version"`
+	CreatedAt       int64          `json:"createdAt"`
+	UpdatedAt       int64          `json:"updatedAt"`
+}
+
+func (ToolDefinition) TableName() string { return "tool_definitions" }
+
+// ConfigVersion 管理面变更版本（表结构即契约：agentcluster 直读，轮次边界生效）。
+// scope=plugin_domain 覆盖 mcp_server_configs / skill_configs / tool_definitions 全部变更。
+type ConfigVersion struct {
+	Scope     string `gorm:"primaryKey;size:32" json:"scope"`
+	Version   int64  `json:"version"`
+	UpdatedAt int64  `json:"updatedAt"`
+}
+
+func (ConfigVersion) TableName() string { return "config_versions" }
 
 /* ================= 审计 ================= */
 
@@ -476,6 +525,7 @@ func AllModels() []interface{} {
 		&Report{}, &AlertRecord{}, &MetricDef{}, &MetaStat{},
 		&Dashboard{}, &ChatSession{}, &ChatMessage{}, &ChatTurn{}, &ChatTurnEvent{}, &AuditLog{},
 		&ModelConfig{}, &EmbeddingConfig{}, &McpServerConfig{}, &SkillConfig{},
+		&ToolDefinition{}, &ConfigVersion{},
 		&ToolCall{}, &LlmCall{}, &AgentCheckpoint{}, &AgentContextSummary{},
 		&SubagentDef{}, &WorkflowDef{}, &AgentTask{},
 	}
