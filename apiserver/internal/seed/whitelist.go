@@ -11,9 +11,10 @@ import (
 	"db-cockpit/apiserver/internal/model"
 )
 
-/* ================= 元数据域 + 数据面白名单演示种子 =================
-与主种子（clusters 演示域）独立：各表「表空才导入」，已种子过的库可增量补种。
-三值复用主种子同款对象（集群/实例/租户同名同 IP），前端切到白名单聚合后视图一致。 */
+/* ================= 元数据域 v2 + 数据面白名单演示种子 =================
+与主种子（clusters 演示域）独立：各表「表空才导入」。
+v2 结构（D16）：db_cluster（含端点）→ db_component（成员，双上游字段）→ db_host（全局主机）。
+形状与前端拓扑原型（topoMock.ts）同构，正式接线零转换。 */
 
 func tp(t time.Time) *time.Time { return &t }
 
@@ -27,139 +28,120 @@ func refOf(m map[string]int64, key string) *int64 {
 	return nil
 }
 
-// instanceKey 元数据域实例键：clusterName/instanceName（OB 两个集群都有 sys 租户，需带集群名区分）
-func instanceKey(clusterName, name string) string { return clusterName + "/" + name }
-
-type instSeed struct {
-	key string
-	row *model.DbInstance
+func whitelistHosts() []*model.DbHost {
+	h := func(ip, name, az, hc, os, infra string) *model.DbHost {
+		return &model.DbHost{HostIP: ip, HostName: name, Region: "华东", Az: az, HostCluster: hc,
+			OsName: os, HostInfraType: infra, HostEnvironment: "生产", Status: "ok"}
+	}
+	return []*model.DbHost{
+		// prod-pg-order-01（az-b/hc-1 主，az-c/hc-2 两备）
+		h("10.20.2.11", "pg-order-01", "az-b", "hc-1", "CentOS 7.9", "虚拟机"),
+		h("10.20.2.12", "pg-order-02", "az-c", "hc-2", "CentOS 7.9", "虚拟机"),
+		h("10.20.2.13", "pg-order-03", "az-c", "hc-2", "CentOS 7.9", "虚拟机"),
+		// prod-pg-report-02
+		h("10.20.2.21", "pg-report-01", "az-b", "hc-1", "CentOS 7.9", "虚拟机"),
+		h("10.20.2.22", "pg-report-02", "az-b", "hc-1", "CentOS 7.9", "虚拟机"),
+		// prod-ob-core-01：obproxy（az-a/b）+ observer 三 Zone
+		h("10.40.5.11", "obproxy-1", "az-a", "hc-1", "CentOS 7.9", "虚拟机"),
+		h("10.40.5.12", "obproxy-2", "az-b", "hc-2", "CentOS 7.9", "虚拟机"),
+		h("10.40.1.11", "observer-z1-1", "az-a", "hc-1", "CentOS 7.9", "物理机"),
+		h("10.40.1.12", "observer-z1-2", "az-a", "hc-1", "CentOS 7.9", "物理机"),
+		h("10.40.2.11", "observer-z2-1", "az-b", "hc-2", "CentOS 7.9", "物理机"),
+		h("10.40.2.12", "observer-z2-2", "az-b", "hc-2", "CentOS 7.9", "物理机"),
+		h("10.40.3.11", "observer-z3-1", "az-c", "hc-3", "CentOS 7.9", "物理机"),
+		h("10.40.3.12", "observer-z3-2", "az-c", "hc-3", "CentOS 7.9", "物理机"),
+		// prod-ob-log-01
+		h("10.41.1.10", "obproxy-log", "az-a", "hc-3", "Ubuntu 22.04", "虚拟机"),
+		h("10.41.1.11", "observer-lz1", "az-a", "hc-3", "Ubuntu 22.04", "虚拟机"),
+		h("10.41.2.11", "observer-lz2", "az-b", "hc-3", "Ubuntu 22.04", "虚拟机"),
+		h("10.41.3.11", "observer-lz3", "az-c", "hc-3", "Ubuntu 22.04", "虚拟机"),
+	}
 }
 
 func whitelistClusters() []*model.DbCluster {
 	now := time.Now()
-	base := func() time.Time { return time.Date(2024, 3, 12, 10, 0, 0, 0, time.Local) }
+	base := time.Date(2024, 3, 12, 10, 0, 0, 0, time.Local)
 	return []*model.DbCluster{
 		{Name: "prod-pg-order-01", Description: "交易核心集群 · 华东-可用区B", DbType: "pg", Environment: "生产",
 			OrgCode: "ORG-CORE-TRADE", ServiceUser: "李明", OprDba: "王强", OprDbaIi: "赵磊", BusinessOwner: "陈锋",
 			AlertSubscriber: "王强,赵磊", SubsysCode: "trade-order", SourceSys: "ucmdb", CcmName: "ccm-pg-order", LeName: "le-sh-east",
 			HaType: "Patroni 流复制（1主2备）", BackupMethod: "pg_basebackup 每日全量 + WAL 归档", FailoverType: "Patroni 自动切换",
-			IsCreatedByCloud: false, SourceID: "ucmdb-ent-001", CreatedAt: base(), SyncedAt: tp(now),
-			Extensions: J(`{"az":"华东-AZ-B","biz":"核心交易"}`)},
+			IsCreatedByCloud: false, SourceID: "ucmdb-ent-001",
+			Endpoint: "10.20.2.10:5432", Vip: "10.20.2.10", Port: 5432, Username: "app_rw", RoleSelector: "primary",
+			CreatedAt: base, SyncedAt: tp(now), Extensions: J(`{"az":"华东-AZ-B","biz":"核心交易"}`)},
 		{Name: "prod-pg-report-02", Description: "报表分析集群 · 华东-可用区B", DbType: "pg", Environment: "生产",
 			OrgCode: "ORG-BI", ServiceUser: "周婷", OprDba: "赵磊", OprDbaIi: "王强", BusinessOwner: "吴楠",
 			AlertSubscriber: "赵磊", SubsysCode: "bi-report", SourceSys: "ucmdb", CcmName: "ccm-pg-report", LeName: "le-sh-east",
 			HaType: "流复制（1主1备）", BackupMethod: "pg_basebackup 每日全量", FailoverType: "手动提升",
-			IsCreatedByCloud: false, SourceID: "ucmdb-ent-002", CreatedAt: base(), SyncedAt: tp(now),
-			Extensions: J(`{"az":"华东-AZ-B","biz":"报表分析"}`)},
+			IsCreatedByCloud: false, SourceID: "ucmdb-ent-002",
+			Endpoint: "10.20.2.20:5432", Vip: "10.20.2.20", Port: 5432, Username: "report_rw", RoleSelector: "primary",
+			CreatedAt: base, SyncedAt: tp(now), Extensions: J(`{"az":"华东-AZ-B","biz":"报表分析"}`)},
 		{Name: "prod-ob-core-01", Description: "核心账务集群 · 华东可用区A/B/C", DbType: "oceanbase", Environment: "生产",
 			OrgCode: "ORG-CORE-TRADE", ServiceUser: "李明", OprDba: "王强", OprDbaIi: "赵磊", BusinessOwner: "陈锋",
 			AlertSubscriber: "王强,赵磊", SubsysCode: "core-ledger", SourceSys: "ucmdb", CcmName: "ccm-ob-core", LeName: "le-sh-east",
 			HaType: "3 Zone × 2 OBServer · Paxos", BackupMethod: "每日全量备份 + 日志归档", FailoverType: "Paxos 多数派自动切换",
-			IsCreatedByCloud: true, SourceID: "ucmdb-ent-003", CreatedAt: base(), SyncedAt: tp(now),
-			Extensions: J(`{"zones":["ZONE1","ZONE2","ZONE3"],"biz":"核心账务"}`)},
+			IsCreatedByCloud: true, SourceID: "ucmdb-ent-003",
+			Endpoint: "10.40.5.100:2883", Vip: "10.40.5.100", Port: 2883, Username: "root", RoleSelector: "any",
+			CreatedAt: base, SyncedAt: tp(now), Extensions: J(`{"zones":["ZONE1","ZONE2","ZONE3"],"biz":"核心账务"}`)},
 		{Name: "prod-ob-log-01", Description: "日志分析集群 · 华东可用区A/B/C", DbType: "oceanbase", Environment: "生产",
 			OrgCode: "ORG-BI", ServiceUser: "周婷", OprDba: "赵磊", OprDbaIi: "王强", BusinessOwner: "吴楠",
 			AlertSubscriber: "赵磊", SubsysCode: "log-analytics", SourceSys: "ucmdb", CcmName: "ccm-ob-log", LeName: "le-sh-east",
 			HaType: "3 Zone × 1 OBServer · Paxos", BackupMethod: "每日全量备份", FailoverType: "Paxos 多数派自动切换",
-			IsCreatedByCloud: true, SourceID: "ucmdb-ent-004", CreatedAt: base(), SyncedAt: tp(now),
-			Extensions: J(`{"zones":["ZONE1","ZONE2","ZONE3"],"biz":"日志分析"}`)},
+			IsCreatedByCloud: true, SourceID: "ucmdb-ent-004",
+			Endpoint: "10.41.1.100:2883", Vip: "10.41.1.100", Port: 2883, Username: "root", RoleSelector: "any",
+			CreatedAt: base, SyncedAt: tp(now), Extensions: J(`{"zones":["ZONE1","ZONE2","ZONE3"],"biz":"日志分析"}`)},
 	}
 }
 
-// whitelistInstances OB 按「租户=实例」约定：sys 租户实例（role=sys）承载集群物理拓扑，
-// 业务租户实例 extensions 携带租户规格（与主种子 ob_tenants 同值）。
-func whitelistInstances(cl map[string]int64) []instSeed {
-	obCore, obLog := cl["prod-ob-core-01"], cl["prod-ob-log-01"]
-	return []instSeed{
-		{"prod-pg-order-01/pg-order-01", &model.DbInstance{
-			ClusterID: cl["prod-pg-order-01"], DbType: "pg", Name: "pg-order-01", Version: "PostgreSQL 15.6", Status: "ok",
-			Role: "storage", CharacterSet: "UTF8", InfraType: "虚拟机",
-			ReqCPU: 16, ReqMemoryGb: 64, ReqStorageGb: 2000, AttachDB: "trade_order;user_center;payment;analytics",
-			Endpoint: "10.20.2.11:5432", Vip: "10.20.2.10", Port: 5432, Username: "app_rw", RoleSelector: "primary",
-			SourceID: "ucmdb-ins-101", CreatedAt: time.Date(2024, 3, 12, 10, 0, 0, 0, time.Local), UpdatedAt: time.Now(),
-			Extensions: J(`{"sync_mode":"quorum","nodes":3}`)}},
-		{"prod-pg-report-02/pg-report-01", &model.DbInstance{
-			ClusterID: cl["prod-pg-report-02"], DbType: "pg", Name: "pg-report-01", Version: "PostgreSQL 15.6", Status: "ok",
-			Role: "storage", CharacterSet: "UTF8", InfraType: "虚拟机",
-			ReqCPU: 16, ReqMemoryGb: 64, ReqStorageGb: 1800, AttachDB: "bi_report;metrics_cache",
-			Endpoint: "10.20.2.21:5432", Vip: "10.20.2.20", Port: 5432, Username: "report_rw", RoleSelector: "primary",
-			SourceID: "ucmdb-ins-102", CreatedAt: time.Date(2024, 6, 1, 9, 0, 0, 0, time.Local), UpdatedAt: time.Now(),
-			Extensions: J(`{"sync_mode":"async","nodes":2}`)}},
-		{"prod-ob-core-01/sys", &model.DbInstance{
-			ClusterID: obCore, DbType: "oceanbase", Name: "sys", Version: "OceanBase 4.2.1", Status: "ok",
-			Role: "sys", CharacterSet: "utf8mb4", InfraType: "物理机",
-			Endpoint: "10.40.1.11:2881", Port: 2881, Username: "root@sys", RoleSelector: "any",
-			SourceID: "ucmdb-ins-201", CreatedAt: time.Date(2024, 3, 12, 10, 0, 0, 0, time.Local), UpdatedAt: time.Now(),
-			Extensions: J(`{"mode":"mysql","tenant_kind":"sys","primary_zone":"RANDOM","locality":"F@ZONE1,F@ZONE2,F@ZONE3","unit_num":1,"max_cpu":6,"max_mem_gb":48,"whitelist":["%"]}`)}},
-		{"prod-ob-core-01/trade_tenant", &model.DbInstance{
-			ClusterID: obCore, DbType: "oceanbase", Name: "trade_tenant", Version: "OceanBase 4.2.1", Status: "warn",
-			Role: "user", CharacterSet: "utf8mb4", InfraType: "物理机",
-			ReqCPU: 14, ReqMemoryGb: 72, ReqStorageGb: 4096, AttachDB: "trade_order;inventory;seckill",
-			Endpoint: "10.40.1.21:2881", Port: 2881, Username: "trade_rw@trade_tenant", RoleSelector: "primary",
-			SourceID: "ucmdb-ins-202", CreatedAt: time.Date(2024, 3, 20, 14, 0, 0, 0, time.Local), UpdatedAt: time.Now(),
-			Extensions: J(`{"mode":"mysql","tenant_kind":"user","primary_zone":"ZONE1","locality":"F@ZONE1,F@ZONE2,F@ZONE3","unit_num":1,"max_cpu":14,"max_mem_gb":72,"whitelist":["10.40.10.%","10.40.11.%"],"units":[{"zone":"ZONE1","server_ip":"10.40.1.11"},{"zone":"ZONE2","server_ip":"10.40.2.11"},{"zone":"ZONE3","server_ip":"10.40.3.11"}]}`)}},
-		{"prod-ob-core-01/pay_tenant", &model.DbInstance{
-			ClusterID: obCore, DbType: "oceanbase", Name: "pay_tenant", Version: "OceanBase 4.2.1", Status: "warn",
-			Role: "user", CharacterSet: "utf8mb4", InfraType: "物理机",
-			ReqCPU: 12, ReqMemoryGb: 48, ReqStorageGb: 1536, AttachDB: "payment;billing",
-			Endpoint: "10.40.2.12:2881", Port: 2881, Username: "pay_rw@pay_tenant", RoleSelector: "primary",
-			SourceID: "ucmdb-ins-203", CreatedAt: time.Date(2024, 8, 5, 16, 0, 0, 0, time.Local), UpdatedAt: time.Now(),
-			Extensions: J(`{"mode":"mysql","tenant_kind":"user","primary_zone":"ZONE2","locality":"F@ZONE1,F@ZONE2,F@ZONE3","unit_num":1,"max_cpu":12,"max_mem_gb":48,"whitelist":["10.40.20.%"],"units":[{"zone":"ZONE1","server_ip":"10.40.1.12"},{"zone":"ZONE2","server_ip":"10.40.2.12"},{"zone":"ZONE3","server_ip":"10.40.3.12"}]}`)}},
-		{"prod-ob-log-01/sys", &model.DbInstance{
-			ClusterID: obLog, DbType: "oceanbase", Name: "sys", Version: "OceanBase 4.2.1", Status: "ok",
-			Role: "sys", CharacterSet: "utf8mb4", InfraType: "虚拟机",
-			Endpoint: "10.41.1.11:2881", Port: 2881, Username: "root@sys", RoleSelector: "any",
-			SourceID: "ucmdb-ins-301", CreatedAt: time.Date(2025, 1, 15, 11, 0, 0, 0, time.Local), UpdatedAt: time.Now(),
-			Extensions: J(`{"mode":"mysql","tenant_kind":"sys","primary_zone":"RANDOM","locality":"F@ZONE1,F@ZONE2,F@ZONE3","unit_num":1,"max_cpu":2,"max_mem_gb":16,"whitelist":["%"]}`)}},
-		{"prod-ob-log-01/log_tenant", &model.DbInstance{
-			ClusterID: obLog, DbType: "oceanbase", Name: "log_tenant", Version: "OceanBase 4.2.1", Status: "ok",
-			Role: "user", CharacterSet: "utf8mb4", InfraType: "虚拟机",
-			ReqCPU: 6, ReqMemoryGb: 32, ReqStorageGb: 8192, AttachDB: "access_log;audit_log",
-			Endpoint: "10.41.1.11:2881", Port: 2881, Username: "log_rw@log_tenant", RoleSelector: "primary",
-			SourceID: "ucmdb-ins-302", CreatedAt: time.Date(2025, 1, 15, 11, 0, 0, 0, time.Local), UpdatedAt: time.Now(),
-			Extensions: J(`{"mode":"mysql","tenant_kind":"user","primary_zone":"ZONE1","locality":"F@ZONE1,F@ZONE2,F@ZONE3","unit_num":1,"max_cpu":6,"max_mem_gb":32,"whitelist":["10.41.0.%"],"units":[{"zone":"ZONE1","server_ip":"10.41.1.11"},{"zone":"ZONE2","server_ip":"10.41.2.11"},{"zone":"ZONE3","server_ip":"10.41.3.11"}]}`)}},
-	}
+// compSeed 成员种子：trafficKey/replKey 为上游成员键（clusterName/name），建行后回填引用
+type compSeed struct {
+	key      string
+	row      *model.DbComponent
+	trafficKey string
+	replKey    string
 }
 
-// whitelistNodes 物理副本节点：PG 挂逻辑实例；OB observer 全部挂 sys 租户实例（横跨全部 server 的集群拓扑锚点）。
-func whitelistNodes(inst map[string]int64) []*model.DbInstanceNode {
-	node := func(key, role, hostName, hostIP string, port int, infra, os string) *model.DbInstanceNode {
-		return &model.DbInstanceNode{InstanceID: inst[key], Ordinal: 0, Role: role, HostName: hostName,
-			HostIP: hostIP, Port: port, HostEnvironment: "生产", HostInfraType: infra, OSName: os}
+// whitelistBaseComponents 引擎/代理成员（租户单独两阶段构建，units 需引用 observer id）
+func whitelistBaseComponents() []compSeed {
+	obCore, obLog := "prod-ob-core-01", "prod-ob-log-01"
+	comp := func(key string, row *model.DbComponent) compSeed { return compSeed{key: key, row: row} }
+	pg := func(cluster, name, role, host string, replTo string) compSeed {
+		return compSeed{key: cluster + "/" + name, replKey: replTo,
+			row: &model.DbComponent{Name: name, Kind: "storage", Role: role,
+				Version: "PostgreSQL 15.6", Status: "ok", Port: 5432, HostIP: host,
+				Extensions: J(`{"character_set":"UTF8","sync_mode":"quorum"}`), SourceID: "ucmdb-comp-" + name}}
 	}
-	pg := []struct{ role, name, ip string }{
-		{"primary", "pg-order-01", "10.20.2.11"}, {"secondary", "pg-order-02", "10.20.2.12"}, {"secondary", "pg-order-03", "10.20.2.13"},
+	seeds := []compSeed{
+		// PG 复制链：两备 → 主（replKey 指向主成员）
+		pg("prod-pg-order-01", "pg-order-01", "primary", "10.20.2.11", ""),
+		pg("prod-pg-order-01", "pg-order-02", "secondary", "10.20.2.12", "prod-pg-order-01/pg-order-01"),
+		pg("prod-pg-order-01", "pg-order-03", "secondary", "10.20.2.13", "prod-pg-order-01/pg-order-01"),
+		pg("prod-pg-report-02", "pg-report-01", "primary", "10.20.2.21", ""),
+		pg("prod-pg-report-02", "pg-report-02", "secondary", "10.20.2.22", "prod-pg-report-02/pg-report-01"),
+		comp(obCore+"/obproxy-1", &model.DbComponent{Name: "obproxy-1", Kind: "proxy", Role: "active",
+			Version: "OceanBase 4.2.1", Status: "ok", Port: 2883, HostIP: "10.40.5.11", SourceID: "ucmdb-comp-obp1"}),
+		comp(obCore+"/obproxy-2", &model.DbComponent{Name: "obproxy-2", Kind: "proxy", Role: "active",
+			Version: "OceanBase 4.2.1", Status: "ok", Port: 2883, HostIP: "10.40.5.12", SourceID: "ucmdb-comp-obp2"}),
+		comp(obLog+"/obproxy-log", &model.DbComponent{Name: "obproxy-log", Kind: "proxy", Role: "active",
+			Version: "OceanBase 4.2.1", Status: "ok", Port: 2883, HostIP: "10.41.1.10", SourceID: "ucmdb-comp-obpl"}),
 	}
-	pgr := []struct{ role, name, ip string }{
-		{"primary", "pg-report-01", "10.20.2.21"}, {"secondary", "pg-report-02", "10.20.2.22"},
+	// OB observer 成员：Paxos 多主，复制字段置空（按 Zone+role 渲染）
+	ob := func(cluster, name, zone, host, status string) compSeed {
+		return comp(cluster+"/"+name, &model.DbComponent{Name: name, Kind: "storage", GroupName: zone, Role: "observer",
+			Version: "OceanBase 4.2.1", Status: status, Port: 2881, HostIP: host,
+			Extensions: J(`{"paxos":true}`), SourceID: "ucmdb-comp-" + name})
 	}
-	obc := []string{"10.40.1.11", "10.40.1.12", "10.40.2.11", "10.40.2.12", "10.40.3.11", "10.40.3.12"}
-	obl := []string{"10.41.1.11", "10.41.2.11", "10.41.3.11"}
-
-	var rows []*model.DbInstanceNode
-	for i, h := range pg {
-		n := node("prod-pg-order-01/pg-order-01", h.role, h.name, h.ip, 5432, "虚拟机", "CentOS 7.9")
-		n.Ordinal = i
-		rows = append(rows, n)
-	}
-	for i, h := range pgr {
-		n := node("prod-pg-report-02/pg-report-01", h.role, h.name, h.ip, 5432, "虚拟机", "CentOS 7.9")
-		n.Ordinal = i
-		rows = append(rows, n)
-	}
-	for i, ip := range obc {
-		n := node("prod-ob-core-01/sys", "observer", fmt.Sprintf("observer-zone%d-%02d", i/2+1, i%2+1), ip, 2881, "物理机", "CentOS 7.9")
-		n.Ordinal = i
-		rows = append(rows, n)
-	}
-	for i, ip := range obl {
-		n := node("prod-ob-log-01/sys", "observer", fmt.Sprintf("obs-log-zone%d-01", i+1), ip, 2881, "虚拟机", "Ubuntu 22.04")
-		n.Ordinal = i
-		rows = append(rows, n)
-	}
-	return rows
+	seeds = append(seeds,
+		ob(obCore, "observer-z1-1", "ZONE1", "10.40.1.11", "ok"), ob(obCore, "observer-z1-2", "ZONE1", "10.40.1.12", "ok"),
+		ob(obCore, "observer-z2-1", "ZONE2", "10.40.2.11", "warn"), ob(obCore, "observer-z2-2", "ZONE2", "10.40.2.12", "ok"),
+		ob(obCore, "observer-z3-1", "ZONE3", "10.40.3.11", "ok"), ob(obCore, "observer-z3-2", "ZONE3", "10.40.3.12", "ok"),
+		ob(obLog, "observer-lz1", "ZONE1", "10.41.1.11", "ok"), ob(obLog, "observer-lz2", "ZONE2", "10.41.2.11", "ok"),
+		ob(obLog, "observer-lz3", "ZONE3", "10.41.3.11", "ok"),
+	)
+	return seeds
 }
 
+// whitelistTenants 已由 buildTenants（两阶段引用 observer/obproxy id）取代
 func watermarkRows() []*model.DbSyncWatermark {
 	now := time.Now()
 	return []*model.DbSyncWatermark{
@@ -177,17 +159,17 @@ type alertSpec struct {
 	count                       int
 	hour, min                   int
 	day                         int
-	cluster, instance          string // 元数据域键；空串 = 不关联
+	cluster, instance           string // 元数据域键（instance → db_component）；空串 = 不关联
 }
 
-func alertRawRows(cl map[string]int64, inst map[string]int64) []*model.AlertRaw {
+func alertRawRows(cl map[string]int64, comp map[string]int64) []*model.AlertRaw {
 	specs := []alertSpec{
 		{"trade_tenant @ prod-ob-core-01", "tenant", "Critical", "租户 CPU 13.1/14C（阈值 90%）", 6, 14, 32, 18, "prod-ob-core-01", "prod-ob-core-01/trade_tenant"},
 		{"prod-pg-order-01（主库）", "cluster", "Critical", "连接数 962/1000 · 接近上限", 4, 11, 20, 18, "prod-pg-order-01", "prod-pg-order-01/pg-order-01"},
-		{"pg-order-01（主库）", "instance", "Major", "备库复制延迟 850ms（阈值 300ms）", 3, 14, 18, 18, "prod-pg-order-01", "prod-pg-order-01/pg-order-01"},
+		{"pg-order-01（主库）", "member", "Major", "备库复制延迟 850ms（阈值 300ms）", 3, 14, 18, 18, "prod-pg-order-01", "prod-pg-order-01/pg-order-01"},
 		{"pay_tenant @ prod-ob-core-01", "tenant", "Major", "租户内存水位 91%", 2, 13, 55, 18, "prod-ob-core-01", "prod-ob-core-01/pay_tenant"},
 		{"analytics @ prod-pg-order-01", "database", "Major", "连接数 410/500 · 慢查询堆积", 1, 12, 40, 18, "prod-pg-order-01", "prod-pg-order-01/pg-order-01"},
-		{"observer-zone2-01", "host", "Major", "OBServer CPU 82% · 建议检查 Unit 均衡", 1, 11, 2, 18, "prod-ob-core-01", ""},
+		{"observer-z2-1", "host", "Major", "OBServer CPU 82% · 建议检查 Unit 均衡", 1, 11, 2, 18, "prod-ob-core-01", "prod-ob-core-01/observer-z2-1"},
 		{"host-10.20.2.12", "host", "Major", "磁盘使用率 72% · 持续上升趋势", 2, 22, 10, 17, "prod-pg-order-01", ""},
 		{"prod-ob-log-01", "cluster", "Major", "major 合并耗时超过 2h", 1, 3, 40, 17, "prod-ob-log-01", ""},
 		{"seckill @ t-trade", "database", "Minor", "慢 SQL 数量突增（+35%/小时）", 5, 10, 15, 18, "prod-ob-core-01", "prod-ob-core-01/trade_tenant"},
@@ -199,16 +181,11 @@ func alertRawRows(cl map[string]int64, inst map[string]int64) []*model.AlertRaw 
 		for k := 0; k < sp.count; k++ {
 			seq++
 			fired := first.Add(time.Duration(k*7) * time.Minute)
-			var cid, iid *int64
-			if sp.cluster != "" {
-				cid = refOf(cl, sp.cluster)
-			}
-			if sp.instance != "" {
-				iid = refOf(inst, sp.instance)
-			}
 			rows = append(rows, &model.AlertRaw{
 				SourceSys: "alert-sys", EventID: fmt.Sprintf("alt-2026-%04d", seq),
-				ObjectName: sp.object, ObjectType: sp.otype, ClusterID: cid, InstanceID: iid,
+				ObjectName: sp.object, ObjectType: sp.otype,
+				ClusterID:  refOf(cl, sp.cluster),
+				InstanceID: refOf(comp, sp.instance),
 				AlertLevel: sp.level, AlertName: sp.title, AlertDesc: sp.title + "（来源：旧告警系统）",
 				FiredAt: fired, StartTime: tp(fired.Add(-time.Minute)), Environment: "生产",
 				CreateTime: tp(fired), UpdateTime: tp(fired),
@@ -221,7 +198,7 @@ func alertRawRows(cl map[string]int64, inst map[string]int64) []*model.AlertRaw 
 
 /* ---- 变更工单 ---- */
 
-func changeTicketRows(cl map[string]int64, inst map[string]int64) []*model.ChangeTicket {
+func changeTicketRows(cl map[string]int64, comp map[string]int64) []*model.ChangeTicket {
 	at := func(day, hour, min int) *time.Time { return tp(time.Date(2026, 8, day, hour, min, 0, 0, time.Local)) }
 	return []*model.ChangeTicket{
 		{SourceSys: "change-sys", TicketNo: "CHG-2026-0812-001", Title: "prod-pg-order-01 参数变更：shared_buffers 32G → 48G",
@@ -232,13 +209,13 @@ func changeTicketRows(cl map[string]int64, inst map[string]int64) []*model.Chang
 		{SourceSys: "change-sys", TicketNo: "CHG-2026-0815-002", Title: "prod-ob-core-01 trade_tenant Unit 扩容：14C → 20C",
 			StatusCode: 1, RiskLevel: "高", OwnerName: "赵磊",
 			PlanStartAt: at(22, 1, 0), PlanEndAt: at(22, 5, 0), ExpectedStopAt: at(22, 5, 0),
-			ClusterID: refOf(cl, "prod-ob-core-01"), InstanceID: refOf(inst, "prod-ob-core-01/trade_tenant"),
+			ClusterID: refOf(cl, "prod-ob-core-01"), InstanceID: refOf(comp, "prod-ob-core-01/trade_tenant"),
 			ProjectID: "PRJ-1024", CreateTime: at(15, 9, 0), UpdateTime: at(20, 14, 0),
 			Raw: J(`{"ticket_id":88210,"change_time":"high"}`)},
 		{SourceSys: "change-sys", TicketNo: "CHG-2026-0816-003", Title: "prod-ob-log-01 新建租户 log_tenant_etl（MySQL 模式）",
 			StatusCode: 3, RiskLevel: "低", OwnerName: "赵磊",
 			PlanStartAt: at(16, 14, 0), PlanEndAt: at(16, 15, 0), ExecuteStartAt: at(16, 14, 10), ExecuteEndAt: at(16, 14, 35),
-			ClusterID: refOf(cl, "prod-ob-log-01"), InstanceID: refOf(inst, "prod-ob-log-01/log_tenant"),
+			ClusterID: refOf(cl, "prod-ob-log-01"), InstanceID: refOf(comp, "prod-ob-log-01/log_tenant"),
 			ProjectID: "PRJ-1088", CreateTime: at(15, 16, 0), UpdateTime: at(16, 14, 40),
 			Raw: J(`{"ticket_id":88315,"change_time":"low"}`)},
 		{SourceSys: "change-sys", TicketNo: "CHG-2026-0818-004", Title: "prod-pg-report-02 备库 pg-report-02 重建（WAL 积压超限）",
@@ -249,7 +226,7 @@ func changeTicketRows(cl map[string]int64, inst map[string]int64) []*model.Chang
 		{SourceSys: "change-sys", TicketNo: "CHG-2026-0821-005", Title: "prod-ob-core-01 pay_tenant 连接白名单变更（新增 10.40.30.%）",
 			StatusCode: 3, RiskLevel: "低", OwnerName: "陈静",
 			PlanStartAt: at(21, 9, 45), PlanEndAt: at(21, 10, 30), ExecuteStartAt: at(21, 10, 0), ExecuteEndAt: at(21, 10, 15),
-			ClusterID: refOf(cl, "prod-ob-core-01"), InstanceID: refOf(inst, "prod-ob-core-01/pay_tenant"),
+			ClusterID: refOf(cl, "prod-ob-core-01"), InstanceID: refOf(comp, "prod-ob-core-01/pay_tenant"),
 			ProjectID: "PRJ-1102", CreateTime: at(20, 11, 0), UpdateTime: at(21, 10, 20),
 			Raw: J(`{"ticket_id":88520,"change_time":"low"}`)},
 	}
@@ -258,27 +235,27 @@ func changeTicketRows(cl map[string]int64, inst map[string]int64) []*model.Chang
 /* ---- 慢查询事件：每指纹多条执行记录，均值与主种子 slow_sqls 展示值一致 ---- */
 
 type slowSpec struct {
-	sqlText, db           string
-	cnt                   int
-	avgMs                 float64
-	rowsExamined          int64
-	instance, endpoint    string
+	sqlText, db            string
+	cnt                    int
+	avgMs                  float64
+	rowsExamined           int64
+	instance, endpoint     string
 	hostIP, hostname, user string
-	port                  int
+	port                   int
 }
 
-func slowQueryLogRows(inst map[string]int64) []*model.SlowQueryLog {
+func slowQueryLogRows(comp map[string]int64) []*model.SlowQueryLog {
 	specs := []slowSpec{
 		{"SELECT o.*, u.name FROM trade_order o JOIN user u ON o.uid = u.id WHERE o.status = ?", "trade_tenant/trade_order",
-			342, 12800, 4380012, "prod-ob-core-01/trade_tenant", "10.40.1.21:2881", "10.40.1.21", "observer-zone1-01", "trade_rw@trade_tenant", 2881},
+			342, 12800, 4380012, "prod-ob-core-01/trade_tenant", "10.40.5.100:2883", "10.40.1.11", "observer-z1-1", "trade_rw@trade_tenant", 2881},
 		{"UPDATE stock_record SET qty = qty - ? WHERE sku_id = ? AND warehouse_id = ?", "trade_tenant/inventory",
-			187, 9600, 1203550, "prod-ob-core-01/trade_tenant", "10.40.1.21:2881", "10.40.1.21", "observer-zone1-01", "trade_rw@trade_tenant", 2881},
+			187, 9600, 1203550, "prod-ob-core-01/trade_tenant", "10.40.5.100:2883", "10.40.1.11", "observer-z1-1", "trade_rw@trade_tenant", 2881},
 		{"SELECT COUNT(*) FROM access_log WHERE create_time BETWEEN ? AND ? GROUP BY path", "log_tenant/access_log",
-			96, 8200, 9881204, "prod-ob-log-01/log_tenant", "10.41.1.11:2881", "10.41.1.11", "obs-log-zone1-01", "log_rw@log_tenant", 2881},
+			96, 8200, 9881204, "prod-ob-log-01/log_tenant", "10.41.1.100:2883", "10.41.1.11", "observer-lz1", "log_rw@log_tenant", 2881},
 		{"SELECT * FROM payment_bill WHERE bill_no LIKE ? ORDER BY ctime DESC LIMIT ?", "pay_tenant/payment",
-			64, 6400, 760332, "prod-ob-core-01/pay_tenant", "10.40.2.12:2881", "10.40.2.12", "observer-zone2-02", "pay_rw@pay_tenant", 2881},
+			64, 6400, 760332, "prod-ob-core-01/pay_tenant", "10.40.5.100:2883", "10.40.2.12", "observer-z2-2", "pay_rw@pay_tenant", 2881},
 		{"DELETE FROM session_token WHERE expire_at < ? AND app_id IN (?, ?, ?)", "pg-order-01/auth",
-			41, 5100, 2310778, "prod-pg-order-01/pg-order-01", "10.20.2.11:5432", "10.20.2.11", "pg-order-01", "app_rw", 5432},
+			41, 5100, 2310778, "prod-pg-order-01/pg-order-01", "10.20.2.10:5432", "10.20.2.11", "pg-order-01", "app_rw", 5432},
 	}
 	base := time.Now().Add(-24 * time.Hour)
 	var rows []*model.SlowQueryLog
@@ -294,7 +271,7 @@ func slowQueryLogRows(inst map[string]int64) []*model.SlowQueryLog {
 				ms -= sp.avgMs * 0.18
 			}
 			rows = append(rows, &model.SlowQueryLog{
-				SourceSys: "log-sys", InstanceID: refOf(inst, sp.instance),
+				SourceSys: "log-sys", InstanceID: refOf(comp, sp.instance),
 				Endpoint: sp.endpoint, Hostname: sp.hostname, HostIP: sp.hostIP, Port: sp.port,
 				DatabaseName: sp.db, Username: sp.user, SqlText: sp.sqlText, Digest: digest,
 				ExecuteMs: ms, RowsExamined: ipid(sp.rowsExamined),
@@ -317,24 +294,24 @@ func loadClusterIDs(gdb *gorm.DB) map[string]int64 {
 	return m
 }
 
-// loadInstanceKeys 键与 whitelistInstances 的可读键一致（clusterName/instanceName）
-func loadInstanceKeys(gdb *gorm.DB, cl map[string]int64) map[string]int64 {
+// loadComponentKeys 组件键：clusterName/name（跨集群同名成员需带集群名区分）
+func loadComponentKeys(gdb *gorm.DB, cl map[string]int64) map[string]int64 {
 	nameByCluster := map[int64]string{}
 	for name, id := range cl {
 		nameByCluster[id] = name
 	}
-	var rows []*model.DbInstance
+	var rows []*model.DbComponent
 	gdb.Find(&rows)
 	m := map[string]int64{}
 	for _, r := range rows {
-		m[instanceKey(nameByCluster[r.ClusterID], r.Name)] = r.ID
+		m[nameByCluster[r.ClusterID]+"/"+r.Name] = r.ID
 	}
 	return m
 }
 
 func RunWhitelist(gdb *gorm.DB) error {
 	var n int64
-	// 元数据三表：cluster → instance → node 依赖自增 ID，一次性导入
+	// 元数据三表：cluster → host → component（租户两阶段引用 observer/obproxy id）
 	if err := gdb.Model(&model.DbCluster{}).Count(&n).Error; err != nil {
 		return err
 	}
@@ -344,26 +321,51 @@ func RunWhitelist(gdb *gorm.DB) error {
 			if err := tx.Create(&clusters).Error; err != nil {
 				return err
 			}
+			if err := tx.CreateInBatches(whitelistHosts(), 100).Error; err != nil {
+				return err
+			}
 			cl := map[string]int64{}
 			for _, c := range clusters {
 				cl[c.Name] = c.ID
 			}
-			seeds := whitelistInstances(cl)
-			inst := map[string]int64{}
-			for _, s := range seeds {
-				if err := tx.Create(s.row).Error; err != nil {
+			// 阶段 A：建基础成员行，收集键 → id
+			seeds := whitelistBaseComponents()
+			ids := map[string]int64{}
+			for i := range seeds {
+				row := seeds[i].row
+				row.ClusterID = cl[keyCluster(seeds[i].key)]
+				if err := tx.Create(row).Error; err != nil {
 					return err
 				}
-				inst[s.key] = s.row.ID
+				ids[seeds[i].key] = row.ID
 			}
-			return tx.CreateInBatches(whitelistNodes(inst), 100).Error
+			// 阶段 B：回填双上游引用（复制链 / 数据流）
+			for i := range seeds {
+				if seeds[i].replKey != "" {
+					if err := tx.Model(seeds[i].row).Update("replication_upstream_id", refOf(ids, seeds[i].replKey)).Error; err != nil {
+						return err
+					}
+				}
+			}
+			// 阶段 C：租户逻辑单元（traffic→obproxy，units→observer）
+			tenants := buildTenants(func(key string) (int64, bool) {
+				v, ok := ids[key]
+				return v, ok
+			})
+			for _, t := range tenants {
+				t.row.ClusterID = cl[t.clusterName]
+				if err := tx.Create(t.row).Error; err != nil {
+					return err
+				}
+			}
+			return nil
 		}); err != nil {
 			return err
 		}
-		log.Printf("[seed] whitelist metadata imported")
+		log.Printf("[seed] whitelist metadata v2 imported")
 	}
 	cl := loadClusterIDs(gdb)
-	inst := loadInstanceKeys(gdb, cl)
+	comp := loadComponentKeys(gdb, cl)
 
 	groups := []struct {
 		name  string
@@ -371,9 +373,9 @@ func RunWhitelist(gdb *gorm.DB) error {
 		rows  func() interface{}
 	}{
 		{"db_sync_watermark", &model.DbSyncWatermark{}, func() interface{} { return watermarkRows() }},
-		{"alert_raw", &model.AlertRaw{}, func() interface{} { return alertRawRows(cl, inst) }},
-		{"change_ticket", &model.ChangeTicket{}, func() interface{} { return changeTicketRows(cl, inst) }},
-		{"slow_query_log", &model.SlowQueryLog{}, func() interface{} { return slowQueryLogRows(inst) }},
+		{"alert_raw", &model.AlertRaw{}, func() interface{} { return alertRawRows(cl, comp) }},
+		{"change_ticket", &model.ChangeTicket{}, func() interface{} { return changeTicketRows(cl, comp) }},
+		{"slow_query_log", &model.SlowQueryLog{}, func() interface{} { return slowQueryLogRows(comp) }},
 	}
 	for _, g := range groups {
 		if err := gdb.Model(g.model).Count(&n).Error; err != nil {
@@ -388,4 +390,51 @@ func RunWhitelist(gdb *gorm.DB) error {
 		log.Printf("[seed] whitelist %s imported", g.name)
 	}
 	return nil
+}
+
+func keyCluster(key string) string {
+	for i := len(key) - 1; i >= 0; i-- {
+		if key[i] == '/' {
+			return key[:i]
+		}
+	}
+	return key
+}
+
+type tenantSeed struct {
+	clusterName string
+	row         *model.DbComponent
+}
+
+func buildTenants(idOf func(string) (int64, bool)) []*tenantSeed {
+	tenant := func(cluster, name, trafficKey string, maxCpu int, units ...string) *tenantSeed {
+		unitJSON := "["
+		first := true
+		for i, u := range units {
+			if id, ok := idOf(u); ok {
+				if !first {
+					unitJSON += ","
+				}
+				first = false
+				unitJSON += fmt.Sprintf(`{"instance_id":%d,"zone":"ZONE%d"}`, id, i+1)
+			}
+		}
+		unitJSON += "]"
+		var traffic *int64
+		if id, ok := idOf(trafficKey); ok {
+			traffic = &id
+		}
+		return &tenantSeed{clusterName: cluster, row: &model.DbComponent{Name: name, Kind: "tenant", Role: "user",
+			Version: "OceanBase 4.2.1", Status: "ok", Port: 2881, TrafficUpstreamID: traffic,
+			Extensions: J(fmt.Sprintf(`{"mode":"mysql","tenant_kind":"user","unit_num":1,"max_cpu":%d,"max_mem_gb":%d,"whitelist":["10.40.10.%%"],"units":%s}`, maxCpu, maxCpu*5+2, unitJSON)),
+			SourceID: "ucmdb-comp-" + name}}
+	}
+	return []*tenantSeed{
+		tenant("prod-ob-core-01", "trade_tenant", "prod-ob-core-01/obproxy-1", 14,
+			"prod-ob-core-01/observer-z1-1", "prod-ob-core-01/observer-z2-1", "prod-ob-core-01/observer-z3-1"),
+		tenant("prod-ob-core-01", "pay_tenant", "prod-ob-core-01/obproxy-2", 12,
+			"prod-ob-core-01/observer-z1-2", "prod-ob-core-01/observer-z2-2", "prod-ob-core-01/observer-z3-2"),
+		tenant("prod-ob-log-01", "log_tenant", "prod-ob-log-01/obproxy-log", 6,
+			"prod-ob-log-01/observer-lz1", "prod-ob-log-01/observer-lz2", "prod-ob-log-01/observer-lz3"),
+	}
 }

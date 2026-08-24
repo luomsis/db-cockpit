@@ -13,6 +13,7 @@ import TenantDetail from './pages/TenantDetail';
 import ChatPage from './pages/ChatPage';
 import Settings from './pages/Settings';
 import Plugins from './pages/Plugins';
+import TopoPreview from './pages/TopoPreview';
 import { ChatPanel } from './components/ChatPanel';
 import { ApiProvider, setQueryProvider } from './lib/query';
 import { apiGet, withFallback } from './lib/api';
@@ -251,7 +252,8 @@ function Shell() {
                 <Route path="/chat" element={<ChatPage />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/plugins" element={<Plugins />} />
-                <Route path="*" element={<Navigate to="/overview" replace />} />
+                <Route path="/topo-demo" element={<TopoPreview />} />
+              <Route path="*" element={<Navigate to="/overview" replace />} />
               </Routes>
             </ErrorBoundary>
           </main>

@@ -9,6 +9,7 @@
 | 实现状态 | 功能级实现进度统一见 `docs/ROADMAP.md`；本文档内「已实现/设计态」在 §6.1.1/§6.1.2 及尾注标注 |
 
 > **变更记录**
+> - v2.4（2026-08-24）：**元数据域 v2 实施定稿（D16）**——四层精简模型（db_cluster/db_component/db_host + 水位）落地，零关系表、双自引用字段（traffic_upstream_id/replication_upstream_id）串联关系，host 独立成全局表；OB 租户=组件逻辑单元（units 落位到 observer 组件 id）；§6.1.1 重写为 v2 定稿；DDL 001/seed/handler/meta API 同步更新。
 > - v2.3（2026-08-22）：**插件域设计定稿（D15，详见工具注册表 §10）**——agent 插件服务合并进 apiserver（不新增容器）：apiserver 管理插件（mcp_server_configs/skill_configs/tool_definitions）、agentcluster 经 PG 表直读使用（规则②延伸，config_version 轮次边界生效）；MCP(http) 插件生态由二期提前 MVP；MVP 边界 http-only、无 CLI/stdio；工具调用 agent→MCP server 直连（规则③）。§3.4.1 二期演进占位同步修订。
 > - v2.2（2026-08-22）：文档重组（docs/design/ + 分类索引见 docs/README.md）——头部补实现状态指引；尾注 8 白名单「表结构待定」更新为已定稿；§10 去人力配比表述（任务分派文档退役，路线图改见 docs/ROADMAP.md）。
 > - v2.1（2026-08-22）：**数据面白名单表落地**（§6.1.2）——`alert_raw` / `change_ticket` / `slow_query_log` 建模定稿（`deploy/db/002_whitelist.sql` + GORM），`lock` 表评审结论为**不建**（锁走 remote 实时采集）；指标表继续 mock 待二期。消费端聚合先行：告警 Critical/Major→P1/P2 映射与对象聚合、慢 SQL 指纹聚合（digest GROUP BY）、变更工单时间窗 API、元数据域三级下钻 API（`/api/meta/*`）；演示种子与单测/集成测试/端到端验证全绿（Issue 域状态机仍为后续演进）。
@@ -596,9 +597,11 @@ stateDiagram-v2
 
 ```mermaid
 erDiagram
-    CLUSTER ||--o{ INSTANCE : contains
-    INSTANCE ||--o{ INSTANCE_NODE : "拓扑节点"
-    INSTANCE ||--o{ SYNC_WATERMARK : "同步水位"
+    CLUSTER ||--o{ COMPONENT : contains
+    COMPONENT }o--|| HOST : "runs_on"
+    COMPONENT }o--o| COMPONENT : "traffic_upstream"
+    COMPONENT }o--o| COMPONENT : "replication_upstream"
+    CLUSTER ||--o{ SYNC_WATERMARK : "同步水位"
     USER ||--o{ USER_ROLE : has
     ROLE ||--o{ USER_ROLE : has
     USER ||--o{ INSTANCE_SCOPE : "实例授权"
@@ -609,28 +612,30 @@ erDiagram
         string name
         string db_type "库类型（路由诊断能力用）"
         string env "环境"
-        string biz_line "业务线"
+        string endpoint "服务入口（数据流拓扑起点）"
         string source_id "旧DBaaS侧ID"
         datetime synced_at
     }
-    INSTANCE {
+    COMPONENT {
         bigint id PK
         bigint cluster_id FK
         string name
-        string role "主/备/仲裁等"
-        string conn_endpoint
-        string version
-        string status
-        string source_id "旧DBaaS侧ID"
+        string kind "storage/proxy/tenant/access/arbiter"
+        string group_name "分组：shard-1/ZONE1…"
+        string role "primary/secondary/observer…"
+        string host_ip "→ db_host"
+        bigint traffic_upstream_id "数据流上游（纵向）"
+        bigint replication_upstream_id "复制上游（横向）"
+        jsonb extensions "租户 mode/unit/whitelist/units 落位"
         datetime synced_at
     }
-    INSTANCE_NODE {
-        bigint id PK
-        bigint instance_id FK
-        string node_type
-        string host
-        int port
-        string topo_relation "拓扑关系（如上游/副本）"
+    HOST {
+        string host_ip PK
+        string host_name
+        string region
+        string az
+        string host_cluster
+        string os_name
     }
     ROLE {
         bigint id PK
@@ -646,23 +651,37 @@ erDiagram
     }
 ```
 
-#### 6.1.1 instance_meta 拆分落地（参考 KubeBlocks 分层，v1.4）
+#### 6.1.1 元数据域 v2 定稿（D16，2026-08-24）
 
-元数据域物理表参考 KubeBlocks「Cluster → Component → InstanceSet → Instance」分层思想设计（建表基准 `deploy/db/001_db_metadata.sql`，GORM 建模 `apiserver/internal/model/metadata.go`）：
+元数据域物理表采用**四层精简模型**（3 域表 + 水位表），零关系表，双自引用字段串联关系：
 
-| 物理表 | 对应 KubeBlocks | 对应 §6.1 ER | 承载内容 |
-|---|---|---|---|
-| `db_cluster` | Cluster | CLUSTER | 集群/实体：环境、组织归属、HA/备份/切换模式、主库类型 |
-| `db_instance` | Component + InstanceSet（合并） | INSTANCE | 逻辑实例：引擎/版本/资源/状态/访问端点（vip/endpoint/port/账号） |
-| `db_instance_node` | Instance（副本） | INSTANCE_NODE | 物理副本节点：host 名/IP/端口/角色/OS |
-| `db_sync_watermark` | — | SYNC_WATERMARK | collector 同步水位（断点续传/幂等去重） |
+| 物理表 | 角色 | 承载内容 |
+|---|---|---|
+| `db_cluster` | 集群层（逻辑包含顶层 + 服务入口） | 业务归属、环境、HA/备份/切换模式、**端点上移**（endpoint/vip/port/username/role_selector） |
+| `db_component` | 组件成员统一表（v2 核心） | 行 = 成员/逻辑单元：引擎成员（pg 节点/observer）、代理成员（obproxy/mongos/haproxy）、租户逻辑单元。**双自引用字段**：`traffic_upstream_id`（数据流上游·纵向·实线）、`replication_upstream_id`（复制上游·横向·虚线，备→主；Paxos/多主置空）；`extensions` 承载租户 mode/unit/whitelist + **units:[{instance_id → db_component.id, zone}]** N:M 落位 |
+| `db_host` | 独立全局主机表 | 位置三级（region/AZ/主机集群）唯一存储点；组件成员经 `host_ip` 挂载（同机多进程天然表达） |
+| `db_sync_watermark` | 同步水位 | collector 断点续传/幂等去重 |
 
-要点：
+**三条显式约定（D16）**：
+1. **纵向按层渲染**：数据流默认按 kind 层级画组间连线，成员级 `traffic_upstream_id` 为可选精化（解决 mongos 多入口 N:M）
+2. **upstream 允许跨集群指向**（component id 全局唯一——支持 HBase→HDFS 依赖与跨机房 DR 复制）
+3. **规模边界**：千级分区级实体（Kafka partition/单 shard 行）不建组件行，建模到 broker/节点/代理层
 
-- **来源与拆分**：旧 ucmdb `instance_meta`（46 列扁平，一条记录 = 1 集群 + 1 实例 + 最多 2 台主机）拆为 1 行 `db_cluster` + 1 行 `db_instance` + N 行 `db_instance_node`（`host_*1/host_*2` 成对列拆多行，支持一主两从、副本集等任意拓扑）；`ins_uuid` → `db_instance.source_id` 作 collector 幂等去重键。
-- **库类型兼容**：`db_type` 文本判别符（KubeBlocks `serviceKind` 思路）+ `extensions` jsonb 承载各类型差异字段，不为每种库单独建表。
-- **查询支撑**：`db_cluster(db_type/environment/name)` 索引支撑大盘与集群列表过滤；集群详情按 `db_instance(cluster_id)` → `db_instance_node(instance_id)` 两级下钻；主机视角按 `db_instance_node(host_ip)` 反查。
-- **写入边界**：本域为数据面白名单表，collector 直写、apiserver 只读消费；与现有 UI 演示模型 `clusters/instances` 并存，接入真实数据后由 `db_*` 表供前端消费。
+**extensions 提升规则**：某键成为高频过滤/强约束需求时提升为显式列（character_set 先例），而非类型子表；「独立生命周期 + 跨行 JOIN + 报表级聚合」三条件齐备才评估类型子表（如 db_tenant_spec 挂 component_id）。
+
+**多库类型覆盖示例**：
+- **PG**：storage 成员 ×3（两备 replication→主 + 1 主 1 备），VIP 在 db_cluster 端点
+- **MySQL+proxy**：proxy 成员 + storage 成员（traffic→proxy 成员，备 replication→主）
+- **MongoDB 分片**：mongos(proxy) / shard-N(storage, group_name=shard-N) / configsvr(arbiter)
+- **Redis Cluster**：storage 成员 ×6（group_name=shard-1..3 主备；去中心化 traffic 置空）
+- **OceanBase**：obproxy(proxy) + tenant 逻辑单元（traffic→obproxy，units 落位到 observer 组件 id）+ observer 成员（group_name=ZONEx，Paxos 置空复制字段）
+- **跨机房 DR**：replication_upstream_id 跨集群指向对端成员（约定 ②）
+
+**迁移映射（v1 → v2）**：旧 db_instance（逻辑服务）→ cluster（端点）+ db_component（成员）；旧 db_instance_node → db_host（host 字段）+ db_component（副本语义）；「sys 租户挂节点」约定废止（成员挂组件 + 主机）。v1 环境需 DROP db_instance / db_instance_node 后重建。
+
+**查询支撑**：`db_cluster(db_type/environment/name)` 索引支撑大盘与集群列表过滤；集群详情按 `db_component(cluster_id)` 下钻（含 kind/group_name/双上游字段/extensions.units）；主机视角按 `db_component(host_ip)` 反查；物理拓扑按 `db_host(region/az/host_cluster)` 分组。
+
+**写入边界**：本域为数据面白名单表，collector 直写、apiserver 只读消费；与现有 UI 演示模型 `clusters/instances` 并存，接入真实数据后由 `db_*` 表供前端消费。
 
 #### 6.1.2 数据面白名单表落地（v2.1）
 

@@ -6,11 +6,10 @@ import (
 	"gorm.io/datatypes"
 )
 
-/* ================= 元数据域（§6.1 · 数据面白名单表：collector 直写 / apiserver 只读） ================= */
+/* ================= 元数据域 v2（§6.1.1 · 数据面白名单表：collector 直写 / apiserver 只读） ================= */
 
-// DbCluster 集群/实体层（KubeBlocks Cluster / §6.1 CLUSTER）。
-// 由 instance_meta 的集群级字段拆出：环境、组织归属、HA/备份/切换模式。
-// 建表基准见 deploy/db/001_db_metadata.sql。
+// DbCluster 集群层（逻辑包含顶层 + 服务入口）。端点上移自 v1 的 db_instance：
+// 服务入口（VIP/接入串）属于集群/服务，不属于单个成员——与 KubeBlocks Service on Component 同构。
 type DbCluster struct {
 	ID               int64          `gorm:"primaryKey" json:"id"`
 	Name             string         `gorm:"size:128;index:idx_db_cluster_name" json:"name"` // instance_meta.entity_name
@@ -32,59 +31,62 @@ type DbCluster struct {
 	FailoverType     string         `gorm:"size:64" json:"failoverType"`
 	IsCreatedByCloud bool           `json:"isCreatedByCloud"`
 	SourceID         string         `gorm:"column:source_id;size:128" json:"sourceId"` // 外部集群级唯一 ID（去重）
+	Endpoint         string         `gorm:"size:256" json:"endpoint"`                  // 服务入口（数据流拓扑起点）
+	Vip              string         `gorm:"size:64" json:"vip"`
+	Port             int            `json:"port"`
+	Username         string         `gorm:"size:64" json:"username"`
+	RoleSelector     string         `gorm:"size:32" json:"roleSelector"` // 入口路由角色：primary/any
 	CreatedAt        time.Time      `json:"createdAt"` // instance_meta.created_date
 	SyncedAt         *time.Time     `json:"syncedAt"`  // collector 最近同步时间（行级水位）
-	Extensions       datatypes.JSON `json:"extensions,omitempty"` // 各库类型差异扩展
+	Extensions       datatypes.JSON `json:"extensions,omitempty"` // 各库类型差异扩展（集群级）
 }
 
 func (DbCluster) TableName() string { return "db_cluster" }
 
-// DbInstance 逻辑实例层（KubeBlocks Component+InstanceSet / §6.1 INSTANCE）。
-// 回答「这是什么库、什么版本、从哪连」；应用连接 vip/endpoint，与所在主机解耦。
-type DbInstance struct {
-	ID           int64          `gorm:"primaryKey" json:"id"`
-	ClusterID    int64          `gorm:"column:cluster_id;index:idx_db_instance_cluster" json:"clusterId"` // 逻辑外键 → db_cluster.id
-	DbType       string         `gorm:"column:db_type;size:32;index:idx_db_instance_db_type" json:"dbType"` // 实例实际引擎，诊断工具按此路由
-	Name         string         `gorm:"size:128" json:"name"`       // instance_meta.instance_name
-	Version      string         `gorm:"size:64" json:"version"`     // instance_meta.version_detail
-	Status       string         `gorm:"size:32" json:"status"`
-	Role         string         `gorm:"size:32" json:"role"`        // 组件角色：storage/proxy…
-	CharacterSet string         `gorm:"size:64" json:"characterSet"`
-	InfraType    string         `gorm:"size:32" json:"infraType"`
-	ReqCPU       float64        `gorm:"column:req_cpu" json:"reqCpu"`
-	ReqMemoryGb  float64        `gorm:"column:req_memory_gb" json:"reqMemoryGb"`
-	ReqStorageGb float64        `gorm:"column:req_storage_gb" json:"reqStorageGb"`
-	AttachDB     string         `gorm:"column:attach_db;size:256" json:"attachDb"`
-	Endpoint     string         `gorm:"size:256" json:"endpoint"`    // instance_meta.instance_endpoint
-	Vip          string         `gorm:"size:64" json:"vip"`          // instance_meta.instance_vip
-	Port         int            `json:"port"`                        // instance_meta.instance_port
-	Username     string         `gorm:"size:64" json:"username"`     // instance_meta.user_name
-	RoleSelector string         `gorm:"size:32" json:"roleSelector"` // 端点路由角色：主/任意副本
-	SourceID     string         `gorm:"column:source_id;size:128;uniqueIndex" json:"sourceId"` // instance_meta.ins_uuid，collector 幂等去重键
-	CreatedAt    time.Time      `json:"createdAt"`                   // instance_meta.ins_created_date
-	UpdatedAt    time.Time      `json:"updatedAt"`                   // instance_meta.ins_updated_date
-	Extensions   datatypes.JSON `json:"extensions,omitempty"`        // 各库类型差异字段
+// DbComponent 组件成员统一表（v2 核心，D16）：一行 = 集群的一个成员/逻辑单元——
+// 引擎成员（pg 节点/observer）、代理成员（obproxy/mongos/haproxy）、租户逻辑单元。
+// 关系零关系表、双自引用字段串联：
+//   - traffic_upstream_id     数据流上游（纵向·实线）：存储成员指向其前面的 proxy/access 组件
+//   - replication_upstream_id 复制上游（横向·虚线）：备→主/级联；Paxos/多主置空（按 zone+role 渲染）
+//   - 租户 N:M 落位走 extensions.units（[{instance_id → db_component.id, zone}]）
+// 语义约束（应用层校验）：traffic 边只指向 proxy/access/compute 类；replication 边仅在引擎成员间。
+type DbComponent struct {
+	ID                   int64          `gorm:"primaryKey" json:"id"`
+	ClusterID            int64          `gorm:"column:cluster_id;index:idx_db_component_cluster" json:"clusterId"`
+	Name                 string         `gorm:"size:128" json:"name"`
+	Kind                 string         `gorm:"size:16" json:"kind"`      // storage/proxy/compute/tenant/access/arbiter
+	GroupName            string         `gorm:"column:group_name;size:64" json:"groupName"` // 分组：shard-1/ZONE1…（可空）
+	Role                 string         `gorm:"size:32" json:"role"`                         // primary/secondary/observer/active…
+	Version              string         `gorm:"size:64" json:"version"`
+	Status               string         `gorm:"size:16" json:"status"`
+	Port                 int            `json:"port"`
+	HostIP               string         `gorm:"column:host_ip;size:64;index:idx_db_component_host" json:"hostIp"` // → db_host（逻辑单元可空）
+	TrafficUpstreamID    *int64         `gorm:"column:traffic_upstream_id" json:"trafficUpstreamId,omitempty"`
+	ReplicationUpstreamID *int64        `gorm:"column:replication_upstream_id" json:"replicationUpstreamId,omitempty"`
+	Extensions           datatypes.JSON `json:"extensions,omitempty"` // 租户 mode/unit/whitelist/units 落位、delay_ms、paxos、路由规则
+	SourceID             string         `gorm:"column:source_id;size:128" json:"sourceId"`
+	CreatedAt            time.Time      `json:"createdAt"`
+	UpdatedAt            time.Time      `json:"updatedAt"`
 }
 
-func (DbInstance) TableName() string { return "db_instance" }
+func (DbComponent) TableName() string { return "db_component" }
 
-// DbInstanceNode 物理副本节点层（KubeBlocks Instance / §6.1 INSTANCE_NODE）。
-// 回答「实例跑在哪些主机、各自角色」；instance_meta 的 host_*1/host_*2 成对列拆成 N 行，
-// 主备切换只改本表 role，实例身份不变。
-type DbInstanceNode struct {
-	ID              int64  `gorm:"primaryKey" json:"id"`
-	InstanceID      int64  `gorm:"column:instance_id;uniqueIndex:idx_db_instance_node_ord,priority:1" json:"instanceId"` // 逻辑外键 → db_instance.id
-	Ordinal         int    `gorm:"uniqueIndex:idx_db_instance_node_ord,priority:2" json:"ordinal"` // host_*1→0、host_*2→1、…
-	Role            string `gorm:"size:32" json:"role"`             // primary/secondary/arbiter
-	HostName        string `gorm:"size:128" json:"hostName"`        // instance_meta.host_name1/2
-	HostIP          string `gorm:"column:host_ip;size:64;index:idx_db_instance_node_host_ip" json:"hostIp"` // instance_meta.host_ip1/2
-	Port            int    `json:"port"`                            // 节点端口（缺省取实例端口）
-	HostEnvironment string `gorm:"size:32" json:"hostEnvironment"`  // instance_meta.host_environment1/2
-	HostInfraType   string `gorm:"size:32" json:"hostInfraType"`    // instance_meta.host_infra_type1/2
-	OSName          string `gorm:"column:os_name;size:64" json:"osName"` // instance_meta.os_name
+// DbHost 独立全局主机表（D16）：位置（region/AZ/主机集群）唯一存储点；
+// 组件成员经 host_ip 挂载（同机多进程天然表达），物理拓扑直接按三列分组。
+type DbHost struct {
+	HostIP         string         `gorm:"column:host_ip;primaryKey;size:64" json:"hostIp"`
+	HostName       string         `gorm:"size:128" json:"hostName"`
+	Region         string         `gorm:"size:32" json:"region"`
+	Az             string         `gorm:"column:az;size:32;index:idx_db_host_az" json:"az"`
+	HostCluster    string         `gorm:"column:host_cluster;size:32;index:idx_db_host_hc" json:"hostCluster"`
+	OsName         string         `gorm:"column:os_name;size:64" json:"osName"`
+	HostInfraType  string         `gorm:"size:32" json:"hostInfraType"`  // 物理机/虚拟机/容器
+	HostEnvironment string        `gorm:"size:32" json:"hostEnvironment"`
+	Status         string         `gorm:"size:16" json:"status"`
+	Extensions     datatypes.JSON `json:"extensions,omitempty"`
 }
 
-func (DbInstanceNode) TableName() string { return "db_instance_node" }
+func (DbHost) TableName() string { return "db_host" }
 
 // DbSyncWatermark collector 同步水位（§6.1 SYNC_WATERMARK）：按来源系统记录断点，幂等续传。
 type DbSyncWatermark struct {
@@ -93,8 +95,6 @@ type DbSyncWatermark struct {
 	LastSyncedAt time.Time      `gorm:"column:last_synced_at" json:"lastSyncedAt"`
 	Cursor       datatypes.JSON `json:"cursor"` // 断点游标（各来源自定义：时间戳/分页/位点）
 }
-
-func (DbSyncWatermark) TableName() string { return "db_sync_watermark" }
 
 /* ================= 数据面白名单表（§6.1.2 · collector 直写 / apiserver 只读聚合） ================= */
 

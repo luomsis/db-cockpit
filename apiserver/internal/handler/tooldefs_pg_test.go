@@ -99,6 +99,12 @@ func newMockMCP(t *testing.T, tools string) *mockMCP {
 
 func (m *mockMCP) setTools(s string) { m.mu.Lock(); m.tools = s; m.mu.Unlock() }
 
+type envBody struct {
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data"`
+}
+
 func postBody(t *testing.T, r *gin.Engine, path, body string) (int, envBody) {
 	t.Helper()
 	w := httptest.NewRecorder()
@@ -123,6 +129,24 @@ func putBody(t *testing.T, r *gin.Engine, path, body string) (int, envBody) {
 		t.Fatalf("解析响应 %s: %v", w.Body.String(), err)
 	}
 	return w.Code, b
+}
+
+func doGet(t *testing.T, r *gin.Engine, path string) (int, envBody) {
+	t.Helper()
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+	var b envBody
+	if err := json.Unmarshal(w.Body.Bytes(), &b); err != nil {
+		t.Fatalf("解析响应 %s: %v", w.Body.String(), err)
+	}
+	return w.Code, b
+}
+
+func decodeData(t *testing.T, raw json.RawMessage, v interface{}) {
+	t.Helper()
+	if err := json.Unmarshal(raw, v); err != nil {
+		t.Fatalf("解析 data: %v", err)
+	}
 }
 
 type tdRow struct {

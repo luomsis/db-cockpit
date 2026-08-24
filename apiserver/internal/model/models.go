@@ -518,7 +518,7 @@ type AuditLog struct {
 func AllModels() []interface{} {
 	return []interface{}{
 		&Cluster{}, &Instance{}, &ClusterParam{}, &ParamHistory{},
-		&DbCluster{}, &DbInstance{}, &DbInstanceNode{}, &DbSyncWatermark{},
+		&DbCluster{}, &DbComponent{}, &DbHost{}, &DbSyncWatermark{},
 		&AlertRaw{}, &ChangeTicket{}, &SlowQueryLog{},
 		&PgDatabase{}, &PgReplica{}, &ObTenant{}, &ObTenantDb{},
 		&Host{}, &InstanceUser{}, &RuntimeSession{}, &Trx{}, &SlowSql{},

@@ -2,12 +2,13 @@
 
 | 项 | 内容 |
 |---|---|
-| 文档版本 | v2.0 |
-| 日期 | 2026-08-22 |
+| 文档版本 | v2.1 |
+| 日期 | 2026-08-24 |
 | 定位 | 功能路线图：**已实现**（严格对照代码）/ MVP 待办 / 二期 / 北极星验收场景 / 决策记录 |
-| 上游文档 | 《数据库AI智能运维平台架构设计文档》v2.1；docs/design/ 各模块设计；docs/contract/ 对接规格 |
+| 上游文档 | 《数据库AI智能运维平台架构设计文档》v2.4；docs/design/ 各模块设计；docs/contract/ 对接规格 |
 
 > **变更记录**
+> - v2.1（2026-08-24）：**元数据域 v2 实施定稿（D16）**——四层精简模型（db_cluster/db_component/db_host + 水位）落地，零关系表、双自引用字段（traffic_upstream_id/replication_upstream_id）串联关系，host 独立成全局表；OB 租户=组件逻辑单元（units 落位到 observer 组件 id）；§6.1.1 重写为 v2 定稿；DDL 001/seed/handler/meta API 同步更新。
 > - v2.0（2026-08-22）：由《MVP实施架构与交付计划》改造——里程碑从「周排期」改为按**实现状态**组织（已实现 / 待办 / 二期，对照代码逐项核对）；删除人力配比与任务分派内容（原《MVP任务拆解与分工》整体退役）；新增 D14（数据面白名单表定稿）。
 > - v1.3 / v1.2 / v1.1：见 git 历史（依赖规则重构对齐、存储三域分治、数据面拆分）。
 
@@ -35,7 +36,7 @@
 | 任务总线 | `agent_tasks` 轮询（2s）、progress 事件直发会话总线、done→system_resume 续跑、取消级联（限列写 cancel_requested）、租约观察（`agent/taskbus.go`） |
 | 管理面 CRUD | subagents / workflows / model-configs / embedding-configs / mcp-servers / skills（启停 + 审计 + api_key 脱敏） |
 | 插件域（D15，2026-08-23 实施） | `tool_definitions`/`config_versions` 表 + 4 个管理端点（触发式 `tools/list` 发现→draft 草案、人工定级状态机、连通性健康标记、列表过滤）；mcp/skill 补 version/status/base_url；stdio 校验拒绝；最小 MCP http 客户端（JSON/SSE 双承载）；版本自增 + 删除级联；演示种子与全量测试（工具注册表 §10.8） |
-| 数据面白名单消费（架构 §6.1.2） | 告警聚合（Critical/Major→P1/P2、次数、首触时间）；慢 SQL 指纹聚合（digest 分组、按实例三级解析：名称→endpoint→OB `extensions.units`）；`GET /api/changes`（风险 / 对象 / 时间窗闭区间过滤）；`GET /api/meta/clusters[/:id]`（集群→实例→节点三级下钻）；空表自动回退 UI 演示表 |
+| 数据面白名单消费（架构 §6.1.2） | 告警聚合（Critical/Major→P1/P2、次数、首触时间）；慢 SQL 指纹聚合（digest 分组、按实例三级解析：名称→host_ip→OB `extensions.units` 链式）；`GET /api/changes`（风险 / 对象 / 执行时间窗闭区间过滤）；`GET /api/meta/clusters[/:id]`（v2 形状：集群→组件成员→主机，含 kind/group_name/双上游字段/extensions.units）；空表自动回退 UI 演示表 |
 | 大盘与查询 | 指标 mock 确定性（与前端 mock 算法对拍黄金向量）、dash series / annotations、大盘 CRUD 与导入 |
 | 其余 REST | 集群 / 实例 / 租户 / 主机 / 报告 / 参数（pending+历史）/ 账号 / 会话 / 事务 / 慢SQL / SQL 诊断建议 / overview 库类型活计数 |
 | 工程基座 | 审计（audit_logs）、种子幂等（主演示 + 白名单 7 表）、单测 + PG 集成测试（marker 自清） |
@@ -44,8 +45,8 @@
 
 | 内容 | 位置 |
 |---|---|
-| 元数据域 4 表（`db_cluster/db_instance/db_instance_node/db_sync_watermark`）+ 白名单 3 表（`alert_raw/change_ticket/slow_query_log`，**lock 不建**） | `deploy/db/001、002_*.sql` + GORM AutoMigrate（38 模型） |
-| OB「租户=实例」约定（sys 租户挂全部 observer 节点、租户规格入 extensions） | 种子与 `/api/meta/clusters/:id` 已落地 |
+| 元数据域 v2（D16，2026-08-24）：3 域表 + 水位表（`db_cluster`/`db_component`/`db_host`/`db_sync_watermark`），零关系表，双自引用字段（`traffic_upstream_id`/`replication_upstream_id`）串联关系，host 独立成全局表；OB 租户=组件逻辑单元（`extensions.units` 落位到 observer 组件 id） | `deploy/db/001_db_metadata.sql` + GORM AutoMigrate（`apiserver/internal/model/metadata.go`） |
+| 白名单 3 表（`alert_raw/change_ticket/slow_query_log`，**lock 不建**） | `deploy/db/002_whitelist.sql` + GORM AutoMigrate |
 | 部署 | docker-compose（frontend + apiserver 两容器，复用宿主机 PG 55432） |
 
 ### 1.4 联调与契约工件
@@ -103,4 +104,5 @@ HITL 中途询问（复用中断-恢复机制）；结构化计划卡；知识�
 | D12 | 表结构边界 | 部分定稿：元数据/告警/变更/慢日志/水位已落地（见 D14）；凭证表、执行审计表、事件类待定 |
 | D13 | 存储三域分治（2026-08-21） | agentcluster 直连 PG 读写分域（呈现域只读 / 内核域读写，Go 统一建模，受限角色） |
 | D14 | 数据面白名单表定稿（2026-08-22） | 元数据 4 表 + 告警/变更/慢日志 3 表建模落地（`deploy/db/` + GORM）；**lock 不建表**（锁走 remote 实时采集，死锁历史另立事件表）；消费端聚合先行，Issue 化后续；指标表继续 mock |
-| D15 | agent 插件域（2026-08-22） | **合并进 apiserver，不新增容器**（仅 http MCP + 无 CLI/stdio → 无运行时可托管；低调用量；暂无权限诉求）：apiserver 管理插件（mcp_server_configs/skill_configs/tool_definitions），agentcluster **PG 表直读**使用（规则②延伸，config_version 轮次边界生效）；工具调用 agent→MCP server 直连（规则③）；MCP(http) 插件生态由二期提前 MVP；独立插件执行体（CLI/stdio/网关化）留二期。详见工具注册表 §10 |
+| D15 | agent 插件域（2026-08-22） | **合并进 apiserver，不新增容器**（仅 http MCP + 无 CLI/stdio → 无运行时可托管；低调用量；暂无权限诉求）：apiserver 管理插件（mcp_server_configs/skill_configs/tool_definitions），agentcluster **PG 表直读**使用（规则②延伸，config_version 轮次边界生效）；工具调用 agent→MCP server 直连（规则）；MCP(http) 插件生态由二期提前 MVP；独立插件执行体（CLI/stdio/网关化）留二期。详见工具注册表 §10 |
+| D16 | 元数据域 v2（2026-08-24） | **四层精简模型**（db_cluster/db_component/db_host + 水位），零关系表，双自引用字段（traffic_upstream_id/replication_upstream_id）串联关系；host 独立成全局表（region/AZ/主机集群三级位置唯一存储点）；OB 租户=组件逻辑单元（`extensions.units` 落位到 observer 组件 id，N:M 字段内承载）；三条显式约定（纵向按层渲染/upstream 允许跨集群/规模边界到 broker 层）；extensions 提升规则（高频过滤键提升为列，三条件齐备才评估类型子表）。详见架构 §6.1.1 v2 |

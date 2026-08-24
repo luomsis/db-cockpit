@@ -1,145 +1,138 @@
 -- =====================================================================
--- 001_db_metadata.sql —— 元数据域（架构文档 §6.1）落地：instance_meta 拆分建表
+-- 001_db_metadata.sql —— 元数据域 v2（架构文档 §6.1.1 v2 · D16 定稿）
 -- =====================================================================
--- 来源：ddl.sql 的 public.instance_meta（公司 ucmdb 导出，46 列扁平结构，一条记录
---       = 1 集群 + 1 实例 + 最多 2 台主机）。
--- 建模：参考 KubeBlocks「Cluster → Component → InstanceSet → Instance」分层思想：
---         db_cluster         集群/实体层      （KubeBlocks Cluster                 / §6.1 CLUSTER）
---         db_instance        逻辑实例层      （KubeBlocks Component + InstanceSet / §6.1 INSTANCE）
---         db_instance_node   物理副本节点层  （KubeBlocks Instance(Pod)           / §6.1 INSTANCE_NODE）
---         db_sync_watermark  同步水位        （§6.1 SYNC_WATERMARK，collector 断点续传）
---       Component 与 InstanceSet 在 ucmdb 扁平数据中合并为 db_instance（一条记录
---       天然是「一个实例 = 一个副本组」）；host_*1/host_*2 成对列拆为节点表多行，
---       支持一主两从、副本集等任意规模拓扑。
--- 库类型兼容：db_type 文本判别符（KubeBlocks serviceKind 思路）+ extensions jsonb
---       承载各类型差异字段，不为每种库单独建表（与现有 GORM Cluster.Type +
---       datatypes.JSON 的做法一致）。
--- 边界：本文件为评审/部署基准，运行时表结构由 apiserver GORM AutoMigrate 统一
---       建模（apiserver/internal/model/metadata.go）；collector 直写（数据面白名单
---       表），apiserver 只读消费。逻辑外键不建硬约束（collector upsert 顺序不保证）。
+-- 来源：ddl.sql 的 public.instance_meta（ucmdb 导出，46 列扁平结构）。
+-- v2 模型（3 域表 + 水位表，零关系表）：
+--   db_cluster         集群层（业务归属 + 环境HA + 服务入口端点）
+--   db_component       组件成员统一表（行 = 成员/逻辑单元：引擎成员、代理进程、租户）
+--   db_host            独立全局主机表（位置三级 region/AZ/主机集群 唯一存储点）
+--   db_sync_watermark  同步水位
+-- 关系表达（D16，双自引用字段，无任何关系表）：
+--   traffic_upstream_id      数据流上游（纵向·实线）：存储成员 → 其前面的 proxy/access 组件
+--   replication_upstream_id  复制上游（横向·虚线）：备 → 主/级联；Paxos/多主置空按 zone+role 渲染
+--   租户 N:M 落位            extensions.units（[{instance_id → db_component.id, zone}]）
+-- 三条显式约定（v2 定稿）：
+--   ① 纵向按层渲染：数据流默认按 kind 层级画组间连线，成员级 traffic 字段为可选精化
+--   ② upstream 允许跨集群指向（component id 全局唯一——支持 HBase→HDFS 依赖与跨机房 DR 复制）
+--   ③ 规模边界：千级分区级实体（Kafka partition/单 shard 行）不建组件行，建模到 broker/节点/代理层
+-- extensions 提升规则：某键成为高频过滤/强约束需求时提升为显式列（character_set 先例），
+--   而非类型子表；「独立生命周期 + 跨行 JOIN + 报表级聚合」三条件齐备才评估类型子表。
+-- 迁移映射（v1 → v2）：旧 db_instance（逻辑服务）→ cluster（端点）+ db_component（成员）；
+--   旧 db_instance_node → db_host（host 字段）+ db_component（副本语义）；「sys 租户挂节点」
+--   约定废止（成员挂组件+主机）。v1 环境需 DROP db_instance / db_instance_node 后重建。
+-- 边界：运行时表结构由 apiserver GORM AutoMigrate 统一建模（model/metadata.go）；本文件为
+--   评审/部署基准；collector 直写（数据面白名单表），apiserver 只读消费；逻辑外键不建硬约束。
 -- =====================================================================
 
 
 -- ---------------------------------------------------------------------
--- 图 1: 表 db_cluster —— 集群/实体层
--- 回答「这是哪套库、归谁管、什么环境、什么高可用模式」
+-- 图 1: 表 db_cluster —— 集群层（业务归属 + 服务入口）
 -- ---------------------------------------------------------------------
 CREATE TABLE db_cluster (
     id                  bigserial PRIMARY KEY,
     name                text NOT NULL,             -- ← instance_meta.entity_name（实体/集群名）
-    description         text,                      -- ← instance_meta.chinese_desc（中文描述）
-    db_type             text NOT NULL,             -- ← instance_meta.db_type（主库类型；大盘按类型过滤/计数）
+    description         text,                      -- ← instance_meta.chinese_desc
+    db_type             text NOT NULL,             -- ← instance_meta.db_type（主库类型）
     environment         text,                      -- ← instance_meta.environment
     org_code            text,                      -- ← instance_meta.org_code（组织）
     service_user        text,                      -- ← instance_meta.service_user（服务负责人）
     opr_dba             text,                      -- ← instance_meta.opr_dba（主管 DBA）
     opr_dba_ii          text,                      -- ← instance_meta.opr_dba_ii（备选 DBA）
-    business_owner      text,                      -- ← instance_meta.business_owner（业务负责人）
-    alert_subscriber    text,                      -- ← instance_meta.alert_subscriber（告警订阅人）
+    business_owner      text,                      -- ← instance_meta.business_owner
+    alert_subscriber    text,                      -- ← instance_meta.alert_subscriber
     subsys_code         text,                      -- ← instance_meta.subsys_code（子系统）
-    source_sys          text,                      -- ← instance_meta.source_sys（来源系统，如 ucmdb）
+    source_sys          text,                      -- ← instance_meta.source_sys（来源系统）
     ccm_name            text,                      -- ← instance_meta.ccm_name
     le_name             text,                      -- ← instance_meta.le_name
     ha_type             text,                      -- ← instance_meta.ha_type（高可用架构）
-    backup_method       text,                      -- ← instance_meta.backup_method（备份方式）
-    failover_type       text,                      -- ← instance_meta.failover_type（故障切换方式）
-    is_created_by_cloud boolean,                   -- ← instance_meta.is_created_by_cloud（text → bool）
-    source_id           text,                      -- 外部集群级唯一 ID（ucmdb 未提供时按 name+org_code 归并）
+    backup_method       text,                      -- ← instance_meta.backup_method
+    failover_type       text,                      -- ← instance_meta.failover_type
+    is_created_by_cloud boolean,                   -- ← instance_meta.is_created_by_cloud
+    source_id           text,                      -- 外部集群级唯一 ID（去重）
+    -- 服务入口（v2 端点上移：入口属于集群/服务，不属于单个成员）
+    endpoint            text,                      -- ← instance_meta.instance_endpoint（访问端点）
+    vip                 text,                      -- ← instance_meta.instance_vip（浮动 IP）
+    port                int,                       -- ← instance_meta.instance_port
+    username            text,                      -- ← instance_meta.user_name（访问账号）
+    role_selector       text,                      -- ← instance_meta.default_role（入口路由角色：primary/any）
     created_at          timestamptz,               -- ← instance_meta.created_date
     synced_at           timestamptz,               -- collector 最近同步时间（行级水位）
     extensions          jsonb DEFAULT '{}'::jsonb  -- 各库类型差异扩展（集群级）
 );
 
--- 前端查询支撑：大盘/集群列表按类型+环境过滤、名称搜索
 CREATE INDEX idx_db_cluster_db_type     ON db_cluster (db_type);
 CREATE INDEX idx_db_cluster_environment ON db_cluster (environment);
 CREATE INDEX idx_db_cluster_name        ON db_cluster (name);
 
 
 -- ---------------------------------------------------------------------
--- 图 2: 表 db_instance —— 逻辑实例层
--- 回答「这是什么库、什么版本、从哪连」；应用连接的是 vip/endpoint，
--- 与所在主机解耦（换机器、主备切换不影响本表身份字段）
+-- 图 2: 表 db_component —— 组件成员统一表（v2 核心 · D16）
+-- 一行 = 集群的一个成员/逻辑单元：引擎成员（pg 节点/observer）、代理成员（obproxy/mongos/
+-- haproxy）、租户逻辑单元（OB tenant）。关系零关系表，双自引用字段串联（见文件头）。
 -- ---------------------------------------------------------------------
-CREATE TABLE db_instance (
-    id              bigserial PRIMARY KEY,
-    cluster_id      bigint NOT NULL,               -- 逻辑外键 → db_cluster.id（集群详情下钻）
-    db_type         text NOT NULL,                 -- ← instance_meta.db_type（实例实际引擎；诊断工具按此路由）
-    name            text NOT NULL,                 -- ← instance_meta.instance_name
-    version         text,                          -- ← instance_meta.version_detail
-    status          text,                          -- ← instance_meta.status
-    role            text,                          -- ← instance_meta.default_role/role（组件角色：storage/proxy…）
-    character_set   text,                          -- ← instance_meta.character_set
-    infra_type      text,                          -- ← instance_meta.infra_type（基础设施类型）
-    req_cpu         numeric(10, 2),                -- ← instance_meta.req_cpu
-    req_memory_gb   numeric(10, 2),                -- ← instance_meta.req_memory_gb
-    req_storage_gb  numeric(10, 2),                -- ← instance_meta.req_storage_gb
-    attach_db       text,                          -- ← instance_meta.attach_db（挂载数据库）
-    endpoint        text,                          -- ← instance_meta.instance_endpoint（访问端点）
-    vip             text,                          -- ← instance_meta.instance_vip（浮动 IP）
-    port            int,                           -- ← instance_meta.instance_port
-    username        text,                          -- ← instance_meta.user_name（访问账号）
-    role_selector   text,                          -- ← instance_meta.default_role（端点路由角色：主/任意副本）
-    source_id       text NOT NULL,                 -- ← instance_meta.ins_uuid（外部唯一 ID，collector 幂等去重键）
-    created_at      timestamptz,                   -- ← instance_meta.ins_created_date
-    updated_at      timestamptz,                   -- ← instance_meta.ins_updated_date
-    extensions      jsonb DEFAULT '{}'::jsonb,     -- 各库类型差异字段（实例级，如 OB 的 tenant 模式等）
-
-    CONSTRAINT uq_db_instance_source_id UNIQUE (source_id)
+CREATE TABLE db_component (
+    id                     bigserial PRIMARY KEY,
+    cluster_id             bigint NOT NULL,           -- 逻辑外键 → db_cluster.id
+    name                   text NOT NULL,             -- ← instance_meta.instance_name（成员命名沿用）
+    kind                   text NOT NULL,             -- storage/proxy/compute/tenant/access/arbiter
+    group_name             text,                      -- 分组：shard-1 / ZONE1 / config…（可空）
+    role                   text,                      -- primary/secondary/observer/arbiter/active…
+    version                text,                      -- ← instance_meta.version_detail（成员级，滚动升级可不同）
+    status                text,                       -- ok/warn/err
+    port                   int,                       -- 成员进程端口
+    host_ip                text,                      -- 逻辑外键 → db_host.host_ip（逻辑单元可空）
+    traffic_upstream_id    bigint,                    -- 数据流上游（纵向）→ db_component.id
+    replication_upstream_id bigint,                   -- 复制上游（横向）→ db_component.id（备→主/级联）
+    extensions             jsonb DEFAULT '{}'::jsonb, -- 租户 mode/unit/whitelist/units 落位、delay_ms、paxos
+    source_id              text,                      -- 外部成员级唯一 ID（去重；原 ins_uuid 语义）
+    created_at             timestamptz,               -- ← instance_meta.ins_created_date
+    updated_at             timestamptz                -- ← instance_meta.ins_updated_date
 );
 
-CREATE INDEX idx_db_instance_cluster ON db_instance (cluster_id);  -- 集群详情 → 实例列表
-CREATE INDEX idx_db_instance_db_type ON db_instance (db_type);    -- 按库类型统计/路由
+CREATE INDEX idx_db_component_cluster ON db_component (cluster_id);  -- 集群 → 成员下钻
+CREATE INDEX idx_db_component_host    ON db_component (host_ip);    -- 主机 → 成员反查
 
 
 -- ---------------------------------------------------------------------
--- 图 3: 表 db_instance_node —— 物理副本节点层
--- 回答「这套库跑在哪些主机上、各自什么角色」；
--- instance_meta 的 host_*1/host_*2 成对列拆成 N 行（每台主机一行），
--- 主备切换只改本表 role，实例身份不变
+-- 图 3: 表 db_host —— 独立全局主机表（D16）
+-- 位置三级（region/AZ/主机集群）唯一存储点；物理拓扑按三列分组；主机跨集群共享。
 -- ---------------------------------------------------------------------
-CREATE TABLE db_instance_node (
-    id               bigserial PRIMARY KEY,
-    instance_id      bigint NOT NULL,              -- 逻辑外键 → db_instance.id
-    ordinal          int NOT NULL DEFAULT 0,       -- 副本序号：host_*1→0、host_*2→1、…（KubeBlocks 实例序号）
-    role             text,                         -- ← instance_meta.default_role/role（primary/secondary/arbiter）
+CREATE TABLE db_host (
+    host_ip          text PRIMARY KEY,             -- ← instance_meta.host_ip1 / host_ip2（全局唯一）
     host_name        text,                         -- ← instance_meta.host_name1 / host_name2
-    host_ip          text,                         -- ← instance_meta.host_ip1 / host_ip2
-    port             int,                          -- 节点端口（ucmdb 仅有实例级端口时取 instance_port）
-    host_environment text,                         -- ← instance_meta.host_environment1 / host_environment2
-    host_infra_type  text,                         -- ← instance_meta.host_infra_type1 / host_infra_type2
+    region           text,                         -- 三级位置：region
+    az               text,                         -- 三级位置：可用区
+    host_cluster     text,                         -- 三级位置：主机集群/机房分组
     os_name          text,                         -- ← instance_meta.os_name
-
-    CONSTRAINT uq_db_instance_node_ord UNIQUE (instance_id, ordinal)  -- 兼作 instance_id 前缀查询索引
+    host_infra_type  text,                         -- ← instance_meta.host_infra_type1/2（物理机/虚拟机）
+    host_environment text,                         -- ← instance_meta.host_environment1/2
+    status           text,
+    extensions       jsonb DEFAULT '{}'::jsonb
 );
 
-CREATE INDEX idx_db_instance_node_host_ip ON db_instance_node (host_ip);  -- 主机列表 / 按 IP 反查实例
+CREATE INDEX idx_db_host_az ON db_host (az);
+CREATE INDEX idx_db_host_hc ON db_host (host_cluster);
 
 
 -- ---------------------------------------------------------------------
--- 图 4: 表 db_sync_watermark —— collector 同步水位
--- 按来源系统记录断点游标，支撑幂等 upsert 与断点续传（§6.1 SYNC_WATERMARK）
+-- 图 4: 表 db_sync_watermark —— collector 同步水位（不变）
 -- ---------------------------------------------------------------------
 CREATE TABLE db_sync_watermark (
     id             bigserial PRIMARY KEY,
-    source_sys     text NOT NULL,                  -- 来源系统标识（如 ucmdb / 告警系统 / 日志系统）
+    source_sys     text NOT NULL,
     last_synced_at timestamptz NOT NULL DEFAULT now(),
-    cursor         jsonb DEFAULT '{}'::jsonb,      -- 断点游标（各来源自定义：时间戳/分页/位点）
-
+    cursor         jsonb DEFAULT '{}'::jsonb,
     CONSTRAINT uq_db_sync_watermark_source UNIQUE (source_sys)
 );
 
 
 -- =====================================================================
--- 拆分示例：一条主从 MySQL 的 instance_meta 记录
---   db_cluster        1 行：name=pay-db、environment=prod、ha_type=主从、org_code=…
---   db_instance       1 行：name=pay-mysql、db_type=mysql、version=8.0.30、
---                          vip=10.0.0.5、port=3306、source_id=ins_uuid
---   db_instance_node  2 行：ordinal=0, role=primary,   host_ip=10.0.1.11, host_infra_type=物理机
---                          ordinal=1, role=secondary, host_ip=10.0.1.12, host_infra_type=虚拟机
---
--- 与现有模型对照（并存，不删除）：
---   db_cluster / db_instance / db_instance_node 为 §6.1 元数据域（数据面白名单表，
---   collector 直写、apiserver 只读）；现有 GORM Cluster(clusters)/Instance(instances)
---   为 UI 演示模型。后续接入真实数据时由 db_* 表替代演示数据供前端消费。
+-- 多库类型覆盖示例（v2 定稿验证）：
+--   PG            storage 成员 ×3（两备 replication→主），VIP 在 db_cluster 端点
+--   MySQL+proxy   proxy 成员 + storage 成员（traffic→proxy 成员，备 replication→主）
+--   MongoDB 分片  mongos(proxy) / shard-N(storage, group_name=shard-N) / configsvr(arbiter)
+--   Redis Cluster storage 成员 ×6（group_name=shard-1..3 主备；去中心化 traffic 置空）
+--   OceanBase     obproxy(proxy) + tenant 逻辑单元（traffic→obproxy，units 落位）+
+--                 observer 成员（group_name=ZONEx，Paxos 置空复制字段）
+--   跨机房 DR     replication_upstream_id 跨集群指向对端成员（约定 ②）
 -- =====================================================================
